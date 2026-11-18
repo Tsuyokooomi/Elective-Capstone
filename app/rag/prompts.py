@@ -137,6 +137,8 @@ SECURITY_PATTERNS = [
     r"\bunauthori[sz]ed\b.{0,20}\b(access|login|sign.?in)\b",
     r"\b(lost|stolen|missing)\b.{0,25}\b(laptop|phone|device|tablet|badge)\b",
     r"\b(laptop|phone|device|tablet)\b.{0,25}\b(lost|stolen|missing)\b",
+    r"\bencrypted\b.{0,30}\b(pay|bitcoin)\b",
+    r"\b(pay|bitcoin)\b.{0,30}\bencrypted\b",
 ]
 
 

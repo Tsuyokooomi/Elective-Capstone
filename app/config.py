@@ -14,9 +14,23 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
     openai_embed_model: str = "text-embedding-3-small"
 
+    # ChromaDB: "http" uses the chroma container, "local" stores files inside the api container
+    chroma_mode: str = "http"
     chroma_host: str = "chroma"
     chroma_port: int = 8000
+    chroma_local_path: str = "./data/chroma"
+    chroma_collection: str = "sops"
+
     database_url: str = "sqlite:///./data/aihas.db"
+
+    # RAG settings (tuned in Phase 5)
+    kb_dir: str = "kb"
+    chunk_size: int = 300
+    chunk_overlap: int = 50
+    top_k: int = 4                      # chunks sent to the LLM
+    candidate_k: int = 8                # candidates from each search before fusion
+    min_vector_score: float = 0.35      # below this, answer "no procedure found"
+    classifier_min_confidence: float = 0.6
 
 
 settings = Settings()

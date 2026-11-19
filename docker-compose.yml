@@ -7,6 +7,7 @@ services:
     volumes:
       - ./data:/code/data
       - ./kb:/code/kb
+      - ./tests:/code/tests
     depends_on:
       - chroma
 

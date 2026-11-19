@@ -12,6 +12,7 @@ connect_args = {}
 
 if url.get_backend_name() == "sqlite":
     connect_args["check_same_thread"] = False
+    connect_args["timeout"] = 30   # wait up to 30 s if another process holds a write lock
     if url.database:
         Path(url.database).parent.mkdir(parents=True, exist_ok=True)
 

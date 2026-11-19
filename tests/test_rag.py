@@ -167,6 +167,7 @@ def test_generator_keeps_valid_citations_and_flags_made_up_ones():
     answer = generate_answer("q", make_search(["KB-001", "KB-002"]), llm, min_score=0.3)
     assert answer.cited_sop_ids == ["KB-001"]
     assert answer.invalid_citations == ["KB-999"]
+    assert "KB-999" not in answer.text and "KB-001" in answer.text
     assert answer.grounded and answer.used_llm
 
 

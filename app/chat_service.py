@@ -123,6 +123,7 @@ def handle_chat(session, req, retriever, answer_llm, classifier_llm) -> dict:
         "tool": tool,
         "sources": sources,
         "grounded": bool(answer and answer.grounded),
+        "invalid_citations": answer.invalid_citations if answer else [],
         "escalated": escalated,
         "pii_redacted": bool(pii_found),
         "latency_ms": latency_ms,

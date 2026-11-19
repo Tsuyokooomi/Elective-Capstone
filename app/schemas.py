@@ -25,6 +25,7 @@ class ChatResponse(BaseModel):
     tool: str | None            # tool that Phase 3 will run for this intent
     sources: list[SourceOut]
     grounded: bool
+    invalid_citations: list[str] = []   # SOP ids the model cited but were not retrieved
     escalated: bool
     pii_redacted: bool
     latency_ms: int

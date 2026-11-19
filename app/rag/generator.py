@@ -40,5 +40,7 @@ def generate_answer(question: str, search: SearchResult, llm, min_score: float |
     found = list(dict.fromkeys(CITE_RE.findall(text)))
     cited = [s for s in found if s in allowed]
     invalid = [s for s in found if s not in allowed]
+    for sop_id in invalid:   # a citation the user cannot trace must not stay in the reply
+        text = re.sub(rf"\s*\[{sop_id}\]", "", text)
     return Answer(text=text, cited_sop_ids=cited, invalid_citations=invalid,
                   grounded=bool(cited), used_llm=True)

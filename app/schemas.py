@@ -27,5 +27,9 @@ class ChatResponse(BaseModel):
     grounded: bool
     invalid_citations: list[str] = []   # SOP ids the model cited but were not retrieved
     escalated: bool
+    pending_confirmation: bool = False   # waiting for the user to reply YES or NO
+    ticket_key: str | None = None
+    tool_result: dict | None = None
+    tool_source: str | None = None   # "llm" if the model chose the tool arguments, "fallback" if not
     pii_redacted: bool
     latency_ms: int

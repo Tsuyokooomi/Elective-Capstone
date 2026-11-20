@@ -32,5 +32,10 @@ class Settings(BaseSettings):
     min_vector_score: float = 0.35      # below this, answer "no procedure found"
     classifier_min_confidence: float = 0.6
 
+    # Automation (Phase 3)
+    webhook_url: str = ""               # optional, for example http://localhost:8080/mock/webhook
+    max_resets_per_hour: int = 3
+    reset_link_minutes: int = 15
+
 
 settings = Settings()

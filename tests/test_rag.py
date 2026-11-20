@@ -215,15 +215,16 @@ def run_chat(env, message, classifier_reply, answer_reply="Try this [KB-001].", 
 
 def test_normal_question_is_answered_with_citations_and_logged(env):
     result, answer_llm, _ = run_chat(
-        env, "How do I reset my forgotten password?",
-        '{"intent": "password_reset", "confidence": 0.9, "urgent": false}',
+        env, "How do I install the VPN on my laptop?",
+        '{"intent": "vpn_help", "confidence": 0.9, "urgent": false}',
+        answer_reply="Install CapstoneVPN from Software Center [KB-007].",
     )
-    assert result["route"] == "action" and result["tool"] == "reset_password"
-    assert result["grounded"] and result["sources"][0]["sop_id"] == "KB-001"
+    assert result["route"] == "answer" and result["tool"] is None
+    assert result["grounded"] and result["sources"][0]["sop_id"] == "KB-007"
     with env.factory() as s:
         msgs = s.scalars(select(Message).order_by(Message.id)).all()
         assert [m.sender for m in msgs] == ["user", "assistant"]
-        assert msgs[1].intent == "password_reset" and msgs[1].latency_ms is not None
+        assert msgs[1].intent == "vpn_help" and msgs[1].latency_ms is not None
         assert len(s.scalars(select(MessageSource)).all()) == 1
 
 

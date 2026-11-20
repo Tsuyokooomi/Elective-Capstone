@@ -17,7 +17,7 @@ class SourceOut(BaseModel):
 
 class ChatResponse(BaseModel):
     conversation_id: int
-    message_id: int
+    message_id: int | None   # None when a human agent is handling the chat
     reply: str
     intent: str | None
     confidence: float | None
@@ -27,6 +27,7 @@ class ChatResponse(BaseModel):
     grounded: bool
     invalid_citations: list[str] = []   # SOP ids the model cited but were not retrieved
     escalated: bool
+    agent_handling: bool = False   # a human agent has taken over: the bot stays silent
     pending_confirmation: bool = False   # waiting for the user to reply YES or NO
     ticket_key: str | None = None
     tool_result: dict | None = None

@@ -35,6 +35,7 @@ from app.tools.executor import (
     count_recent_resets,
     escalate,
     execute_tool_call,
+    find_open_ticket,
     find_pending,
     parse_confirmation,
     ticket_key,
@@ -67,6 +68,26 @@ class Outcome:
     tool_source: str | None = None   # "llm" or "fallback" for proposed actions
     new_tool_calls: list[dict] = field(default_factory=list)   # saved after the assistant message exists
     events: list[tuple[str, dict]] = field(default_factory=list)  # webhook events, sent after commit
+
+
+def _resolved_by_assistant(session, conversation) -> bool:
+    """True if the assistant answered something in this chat and no ticket or agent was involved."""
+    if conversation.status == "escalated" or find_open_ticket(session, conversation.id) is not None:
+        return False
+    previous = session.scalars(
+        select(Message).where(Message.conversation_id == conversation.id, Message.sender == "assistant")
+    ).all()
+    return any(m.intent not in (None, "chitchat") for m in previous)
+
+
+def _agent_handling_response(conversation) -> dict:
+    return {
+        "conversation_id": conversation.id, "message_id": None, "reply": "", "intent": None,
+        "confidence": None, "route": "agent", "tool": None, "sources": [], "grounded": False,
+        "invalid_citations": [], "escalated": True, "agent_handling": True,
+        "pending_confirmation": False, "ticket_key": None, "tool_result": None, "tool_source": None,
+        "pii_redacted": False, "latency_ms": 0,
+    }
 
 
 def _rag(question, retriever, answer_llm):
@@ -156,6 +177,8 @@ def _handle_new(session, clean, user, conversation, retriever, answer_llm, class
     elif intent == "chitchat":
         thanks = re.search(r"\b(thanks|thank you|salamat)\b", clean.lower())
         out.reply = THANKS_REPLY if thanks else GREETING_REPLY
+        if thanks and _resolved_by_assistant(session, conversation):
+            conversation.status, conversation.resolved_by_ai, conversation.ended_at = "resolved", True, utcnow()
     elif out.route == "escalate":
         priority = PRIORITY_BY_INTENT.get(intent, "P3")
         ticket, created = escalate(session, user, conversation, clean[:150], priority)
@@ -199,9 +222,21 @@ def handle_chat(session, req, retriever, answer_llm, classifier_llm, tool_llm=No
         session.add(conversation)
         session.flush()
 
+    if conversation.status == "resolved":   # the user came back, so the chat is open again
+        conversation.status, conversation.resolved_by_ai, conversation.ended_at = "open", False, None
+
     # Store only the redacted text
     clean, pii_found = redact_pii(req.message)
     session.add(Message(conversation_id=conversation.id, sender="user", content=clean))
+
+    # Human in the loop: once an agent has claimed the ticket, the bot stays silent.
+    if conversation.status == "escalated":
+        open_ticket = find_open_ticket(session, conversation.id)
+        if open_ticket is not None and open_ticket.assigned_to is not None:
+            session.commit()
+            response = _agent_handling_response(conversation)
+            response["pii_redacted"] = bool(pii_found)
+            return response
 
     started = time.perf_counter()
     out = Outcome()

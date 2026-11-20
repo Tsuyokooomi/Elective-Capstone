@@ -274,12 +274,13 @@ def test_ticket_and_audit_endpoints(chat):
     main.app.dependency_overrides[main.get_session] = session_override
     try:
         client = TestClient(main.app)
-        tickets = client.get("/tickets").json()
+        agent, admin = {"X-Employee-Id": "E-2001"}, {"X-Employee-Id": "E-3001"}
+        tickets = client.get("/tickets", headers=agent).json()
         assert tickets[0]["ticket_key"] == "CC-0001" and tickets[0]["requester"] == "E-1001"
-        assert client.get("/tickets", params={"status": "closed"}).json() == []
-        assert client.get("/tickets/1").json()["title"] == "Jira access"
-        assert client.get("/tickets/99").status_code == 404
-        actions = [a["action"] for a in client.get("/audit-logs").json()]
+        assert client.get("/tickets", params={"status": "closed"}, headers=agent).json() == []
+        assert client.get("/tickets/1", headers=agent).json()["title"] == "Jira access"
+        assert client.get("/tickets/99", headers=agent).status_code == 404
+        actions = [a["action"] for a in client.get("/audit-logs", headers=admin).json()]
         assert "ticket.created" in actions and "tool.completed" in actions
         assert client.post("/mock/webhook", json={"event": "x"}).json() == {"received": True}
         assert client.get("/mock/webhook/events").json()[0] == {"event": "x"}

@@ -8,7 +8,10 @@ from streamlit.testing.v1 import AppTest
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import api  # noqa: E402
 
+APP = os.path.join(os.path.dirname(__file__), "..", "app.py")
 USERS = {"E-1001": ("Alex Employee", "employee"), "E-2001": ("Ana Agent", "agent"), "E-3001": ("Adam Admin", "admin")}
+PASSWORDS = {"E-1001": "Demo-Employee-123", "E-2001": "Demo-Agent-123", "E-3001": "Demo-Admin-123"}
+LOGIN_TITLE = "CapstoneCompany IT Helpdesk"
 
 
 class FakeBackend:
@@ -34,7 +37,23 @@ class FakeBackend:
                 "sources": [{"sop_id": "KB-007", "title": "VPN Setup on Windows", "chunk_id": "KB-007#0", "score": 0.75}]}
 
     def __call__(self, method, path, employee_id=None, **kw):
+        # The third argument is the login token. In this fake the token is simply the employee ID.
         self.calls.append((method, path, employee_id, kw))
+        if path == "/auth/login":
+            who, password = kw["json"]["employee_id"], kw["json"]["password"]
+            if who not in USERS or PASSWORDS[who] != password:
+                raise api.ApiError("Wrong employee ID or password", 401)
+            name, role = USERS[who]
+            return {"access_token": who, "token_type": "bearer", "expires_in": 3600,
+                    "user": {"employee_id": who, "name": name, "role": role}}
+        if path == "/auth/reset-password":
+            if kw["json"]["token"] != "good-token":
+                raise api.ApiError("This reset link is invalid, expired, or already used", 400)
+            return {"message": "Your password was changed. You can sign in now."}
+        if path == "/mock/outbox":
+            return [{"to": "alex@capstonecompany.example", "subject": "Reset your CapstoneCompany password",
+                     "link": "http://localhost:8501/?reset_token=good-token", "body": "x",
+                     "sent_at": "2026-11-22T10:00:00+00:00"}]
         if path == "/me":
             name, role = USERS[employee_id]
             return {"employee_id": employee_id, "name": name, "role": role}
@@ -83,10 +102,17 @@ def backend(monkeypatch):
     return fake
 
 
-def start(user="E-1001 · Alex Employee", view=None):
-    at = AppTest.from_file(os.path.join(os.path.dirname(__file__), "..", "app.py"), default_timeout=20).run()
-    if user != "E-1001 · Alex Employee":
-        at.sidebar.selectbox(key="who").select(user).run()
+def login(at, employee_id, password=None):
+    at.text_input(key="login_id").set_value(employee_id)
+    at.text_input(key="login_password").set_value(password or PASSWORDS[employee_id])
+    at.get("form_submit_button")[0].click().run()   # the Sign in button sits inside a form
+    return at
+
+
+def start(user="E-1001", view=None):
+    """Open the app and sign in through the login form."""
+    at = AppTest.from_file(APP, default_timeout=20).run()
+    login(at, user)
     if view:
         at.sidebar.radio(key="view").set_value(view).run()
     assert not at.exception, at.exception
@@ -132,6 +158,9 @@ def test_agent_handling_banner(backend):
 
 def test_api_error_is_shown_not_raised(backend, monkeypatch):
     def boom(method, path, employee_id=None, **kw):
+        if path == "/auth/login":
+            return {"access_token": "E-1001", "token_type": "bearer", "expires_in": 3600,
+                    "user": {"employee_id": "E-1001", "name": "Alex", "role": "employee"}}
         if path == "/me":
             return {"employee_id": "E-1001", "name": "Alex", "role": "employee"}
         if path == "/chat":
@@ -144,7 +173,7 @@ def test_api_error_is_shown_not_raised(backend, monkeypatch):
 
 
 def test_agent_queue_sorts_by_priority_and_acts_on_a_ticket(backend):
-    at = start("E-2001 · Ana Agent")
+    at = start("E-2001")
     assert at.sidebar.radio(key="view").value == "Agent queue"
     table = at.dataframe[0].value
     assert list(table["ticket_key"]) == ["CC-0001", "CC-0002"]                 # P1 first
@@ -160,7 +189,7 @@ def test_agent_queue_sorts_by_priority_and_acts_on_a_ticket(backend):
 
 
 def test_agent_can_send_a_reply(backend):
-    at = start("E-2001 · Ana Agent")
+    at = start("E-2001")
     at.selectbox(key="ticket_pick").select("CC-0001").run()
     at.text_area[0].set_value("Hello, I am Ana.")
     at.get("form_submit_button")[0].click().run()   # the Send reply button sits inside a form
@@ -168,7 +197,7 @@ def test_agent_can_send_a_reply(backend):
 
 
 def test_admin_dashboard_shows_the_numbers(backend):
-    at = start("E-3001 · Adam Admin")
+    at = start("E-3001")
     assert at.sidebar.radio(key="view").value == "Dashboard"
     values = {m.label: m.value for m in at.metric}
     assert values["Ticket deflection"] == "25%" and values["Escalation rate"] == "25%"
@@ -177,7 +206,7 @@ def test_admin_dashboard_shows_the_numbers(backend):
 
 
 def test_admin_knowledge_base_page(backend):
-    at = start("E-3001 · Adam Admin", view="Knowledge base")
+    at = start("E-3001", view="Knowledge base")
     assert "1 not indexed" in at.caption[0].value
     at.button(key="reindex").click().run()
     assert any("indexed" in s.value for s in at.success)
@@ -185,10 +214,83 @@ def test_admin_knowledge_base_page(backend):
     assert any("Password Reset" in m.value for m in at.markdown)
 
 
-def test_switching_user_starts_a_fresh_chat(backend):
+def test_signing_out_and_in_as_someone_else_starts_a_fresh_chat(backend):
     at = start()
     at.chat_input[0].set_value("How do I install the VPN?").run()
     assert len(at.chat_message) >= 2
-    at.sidebar.selectbox(key="who").select("E-3001 · Adam Admin").run()
+    at.sidebar.button(key="sign_out").click().run()
+    assert at.title[0].value == LOGIN_TITLE                                   # back at the login screen
+    login(at, "E-3001")
     at.sidebar.radio(key="view").set_value("Chat").run()
     assert len(at.chat_message) == 0
+
+
+def test_login_screen_comes_first_and_a_wrong_password_is_rejected(backend):
+    at = AppTest.from_file(APP, default_timeout=20).run()
+    assert not at.exception and at.title[0].value == LOGIN_TITLE
+    assert len(at.sidebar.radio) == 0                                         # no app screens before signing in
+    login(at, "E-1001", "wrong-password")
+    assert any("Wrong employee ID or password" in e.value for e in at.error)
+    assert not [c for c in backend.calls if c[1] == "/me"]                    # it never got in
+
+
+def test_the_token_not_the_employee_id_is_sent_to_the_api(backend):
+    at = start("E-2001")
+    assert at.sidebar.caption[0].value == "Ana Agent · agent"
+    me_calls = [c for c in backend.calls if c[1] == "/me"]
+    assert me_calls and me_calls[0][2] == "E-2001"        # fake token; the real one is a signed JWT
+    login_calls = [c for c in backend.calls if c[1] == "/auth/login"]
+    assert login_calls[0][2] is None                       # logging in sends no token
+
+
+def test_an_expired_token_sends_you_back_to_the_login_screen(backend, monkeypatch):
+    at = start()
+    working = api.request
+
+    def expired(method, path, token=None, **kw):
+        if path == "/me":
+            raise api.ApiError("Invalid or expired token", 401)
+        return working(method, path, token, **kw)
+
+    monkeypatch.setattr(api, "request", expired)
+    at.chat_input[0].set_value("hello").run()
+    assert not at.exception and at.title[0].value == LOGIN_TITLE
+    assert any("session ended" in w.value for w in at.warning)
+
+
+def open_reset_link(token):
+    at = AppTest.from_file(APP, default_timeout=20)
+    at.query_params["reset_token"] = token
+    return at.run()
+
+
+def test_reset_link_lets_the_user_choose_a_new_password(backend):
+    at = open_reset_link("good-token")
+    assert not at.exception and at.title[0].value == "Choose a new password"
+    at.text_input(key="reset_new").set_value("Brand-New-Pass-42")
+    at.text_input(key="reset_confirm").set_value("Brand-New-Pass-42")
+    at.get("form_submit_button")[0].click().run()
+    assert not at.exception and at.title[0].value == LOGIN_TITLE
+    assert any("password was changed" in s.value for s in at.success)
+    call = [c for c in backend.calls if c[1] == "/auth/reset-password"][0]
+    assert call[3]["json"] == {"token": "good-token", "new_password": "Brand-New-Pass-42"}
+
+
+def test_reset_form_checks_the_two_passwords_match_and_shows_api_errors(backend):
+    at = open_reset_link("good-token")
+    at.text_input(key="reset_new").set_value("Brand-New-Pass-42")
+    at.text_input(key="reset_confirm").set_value("Different-Pass-42")
+    at.get("form_submit_button")[0].click().run()
+    assert any("do not match" in e.value for e in at.error)
+    assert not [c for c in backend.calls if c[1] == "/auth/reset-password"]      # nothing was sent
+
+    at = open_reset_link("expired-token")
+    at.text_input(key="reset_new").set_value("Brand-New-Pass-42")
+    at.text_input(key="reset_confirm").set_value("Brand-New-Pass-42")
+    at.get("form_submit_button")[0].click().run()
+    assert any("expired" in e.value for e in at.error) and at.title[0].value == "Choose a new password"
+
+
+def test_admin_dashboard_shows_the_mock_outbox(backend):
+    at = start("E-3001")
+    assert any("reset_token=good-token" in c.value for c in at.code)

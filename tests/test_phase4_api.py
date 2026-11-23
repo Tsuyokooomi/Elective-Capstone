@@ -4,11 +4,16 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app import main
+from app.auth import create_token
 from app.db.models import AuditLog, Conversation, Message, Ticket
 from test_rag import FakeLLM, env, sops  # noqa: F401  (shared fixtures)
 from test_tools import FakeToolLLM, chat  # noqa: F401
 
-EMP, AGENT, ADMIN = ({"X-Employee-Id": e} for e in ("E-1001", "E-2001", "E-3001"))
+def auth(employee_id: str) -> dict:
+    return {"Authorization": f"Bearer {create_token(employee_id)}"}
+
+
+EMP, AGENT, ADMIN = (auth(e) for e in ("E-1001", "E-2001", "E-3001"))
 
 
 @pytest.fixture()
@@ -39,7 +44,8 @@ def escalated_chat(chat):
 
 def test_missing_or_unknown_user_is_401_and_wrong_role_is_403(client):
     assert client.get("/me").status_code == 401
-    assert client.get("/me", headers={"X-Employee-Id": "nobody"}).status_code == 401
+    assert client.get("/me", headers={"Authorization": "Bearer not-a-real-token"}).status_code == 401
+    assert client.get("/me", headers=auth("nobody")).status_code == 401      # genuine token, but the account does not exist
     assert client.get("/me", headers=EMP).json() == {"employee_id": "E-1001", "name": "Alex Employee", "role": "employee"}
     assert client.get("/metrics/summary", headers=EMP).status_code == 403
     assert client.get("/audit-logs", headers=AGENT).status_code == 403
@@ -192,7 +198,8 @@ def test_kb_list_preview_and_search_route_order(client, env):
     assert doc["title"] == "Password Reset (Self-Service)" and "Steps:" in doc["text"]
     assert client.get("/kb/KB-999", headers=EMP).status_code == 404
     assert client.get("/kb/..%2Fsecret", headers=EMP).status_code == 404
-    search = client.get("/kb/search", params={"q": "vpn authentication failed"})
+    assert client.get("/kb/search", params={"q": "vpn"}).status_code == 401          # staff only
+    search = client.get("/kb/search", params={"q": "vpn authentication failed"}, headers=AGENT)
     assert search.status_code == 200 and search.json()["chunks"]          # not swallowed by /kb/{sop_id}
     assert client.get("/kb").status_code == 401
 

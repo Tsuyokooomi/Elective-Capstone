@@ -17,6 +17,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.auth import create_token
 from app.chat_service import handle_chat
 from app.config import settings
 from app.db import seed as seed_module
@@ -307,13 +308,19 @@ def test_chat_endpoint_end_to_end(env):
         '{"intent": "vpn_help", "confidence": 0.9, "urgent": false}')
     try:
         client = TestClient(main.app)
-        r = client.post("/chat", json={"message": "VPN says authentication failed"})
+        emp = {"Authorization": f"Bearer {create_token('E-1001')}"}
+        agent = {"Authorization": f"Bearer {create_token('E-2001')}"}
+        assert client.post("/chat", json={"message": "x"}).status_code == 401            # no token, no chat
+        r = client.post("/chat", json={"message": "VPN says authentication failed"}, headers=emp)
         assert r.status_code == 200
         body = r.json()
         assert body["route"] == "answer" and body["sources"][0]["sop_id"] == "KB-008"
-        assert client.post("/chat", json={"message": "x", "employee_id": "nobody"}).status_code == 404
-        assert client.post("/chat", json={"message": ""}).status_code == 422
-        search = client.get("/kb/search", params={"q": "vpn authentication failed"}).json()
+        ghost = {"Authorization": f"Bearer {create_token('nobody')}"}
+        assert client.post("/chat", json={"message": "x"}, headers=ghost).status_code == 401
+        assert client.post("/chat", json={"message": ""}, headers=emp).status_code == 422
+        assert client.get("/kb/search", params={"q": "vpn"}).status_code == 401           # debug search is staff only
+        assert client.get("/kb/search", params={"q": "vpn"}, headers=emp).status_code == 403
+        search = client.get("/kb/search", params={"q": "vpn authentication failed"}, headers=agent).json()
         assert search["chunks"] and "best_vector_score" in search
     finally:
         main.app.dependency_overrides.clear()

@@ -12,9 +12,8 @@ class ApiError(Exception):
         self.status = status
 
 
-def request(method: str, path: str, employee_id: str | None = None, **kwargs):
-    # Placeholder sign-in: the backend reads X-Employee-Id. Phase 5 replaces it with tokens.
-    headers = {"X-Employee-Id": employee_id} if employee_id else {}
+def request(method: str, path: str, token: str | None = None, **kwargs):
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
     try:
         response = requests.request(method, API_URL + path, headers=headers, timeout=180, **kwargs)
     except requests.RequestException:
@@ -28,46 +27,61 @@ def request(method: str, path: str, employee_id: str | None = None, **kwargs):
     return response.json()
 
 
-def chat(employee_id, message, conversation_id=None):
-    return request("POST", "/chat", employee_id,
-                   json={"message": message, "conversation_id": conversation_id, "employee_id": employee_id})
+def login(employee_id, password):
+    """Returns {"access_token", "user", ...}. Raises ApiError(401) for a wrong ID or password, 429 when locked."""
+    return request("POST", "/auth/login", None, json={"employee_id": employee_id, "password": password})
 
 
-def conversations(employee_id, status=None):
-    return request("GET", "/conversations", employee_id, params={"status": status} if status else None)
+def reset_password(reset_token, new_password):
+    """Set a new password using the one-time token from the reset link."""
+    return request("POST", "/auth/reset-password", None, json={"token": reset_token, "new_password": new_password})
 
 
-def conversation_messages(employee_id, conversation_id):
-    return request("GET", f"/conversations/{conversation_id}/messages", employee_id)
+def outbox(token):
+    """Admin only: the fake email service's sent messages."""
+    return request("GET", "/mock/outbox", token)
 
 
-def tickets(employee_id, status=None):
-    return request("GET", "/tickets", employee_id, params={"status": status} if status else None)
+def chat(token, message, conversation_id=None):
+    # Who is asking comes from the token. The backend ignores any employee ID in the body.
+    return request("POST", "/chat", token, json={"message": message, "conversation_id": conversation_id})
 
 
-def update_ticket(employee_id, ticket_id, **changes):
-    return request("PATCH", f"/tickets/{ticket_id}", employee_id, json=changes)
+def conversations(token, status=None):
+    return request("GET", "/conversations", token, params={"status": status} if status else None)
 
 
-def agent_reply(employee_id, conversation_id, message):
-    return request("POST", f"/conversations/{conversation_id}/agent-reply", employee_id, json={"message": message})
+def conversation_messages(token, conversation_id):
+    return request("GET", f"/conversations/{conversation_id}/messages", token)
 
 
-def metrics(employee_id):
-    return request("GET", "/metrics/summary", employee_id)
+def tickets(token, status=None):
+    return request("GET", "/tickets", token, params={"status": status} if status else None)
 
 
-def audit_logs(employee_id, limit=50):
-    return request("GET", "/audit-logs", employee_id, params={"limit": limit})
+def update_ticket(token, ticket_id, **changes):
+    return request("PATCH", f"/tickets/{ticket_id}", token, json=changes)
 
 
-def kb_list(employee_id):
-    return request("GET", "/kb", employee_id)
+def agent_reply(token, conversation_id, message):
+    return request("POST", f"/conversations/{conversation_id}/agent-reply", token, json={"message": message})
 
 
-def kb_doc(employee_id, sop_id):
-    return request("GET", f"/kb/{sop_id}", employee_id)
+def metrics(token):
+    return request("GET", "/metrics/summary", token)
 
 
-def kb_reindex(employee_id, force=False):
-    return request("POST", "/kb/reindex", employee_id, params={"force": force})
+def audit_logs(token, limit=50):
+    return request("GET", "/audit-logs", token, params={"limit": limit})
+
+
+def kb_list(token):
+    return request("GET", "/kb", token)
+
+
+def kb_doc(token, sop_id):
+    return request("GET", f"/kb/{sop_id}", token)
+
+
+def kb_reindex(token, force=False):
+    return request("POST", "/kb/reindex", token, params={"force": force})

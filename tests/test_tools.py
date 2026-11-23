@@ -5,12 +5,14 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from app.auth import create_token
 from app.chat_service import handle_chat
 from app.config import settings
 from app.db.models import AuditLog, Conversation, Ticket, ToolCall, User
 from app.schemas import ChatRequest
 from app.tools.executor import parse_confirmation
 from app.tools.function_calling import choose_tool, sanitize_args
+from app.tools.mock_email import OUTBOX
 from app.tools.webhook import send_webhook
 from test_rag import FakeLLM, env, sops  # noqa: F401  (shared fixtures)
 
@@ -118,11 +120,11 @@ def test_password_reset_asks_first_then_runs_after_yes(chat):
     assert not chat.classifier.calls                            # the answer to YES/NO needs no LLM
     assert not second["pending_confirmation"] and "reset link" in second["reply"]
     assert "a***@capstonecompany.example" in second["reply"]
-    assert chat.user().password_hash != before
+    assert chat.user().password_hash == before                  # the password only changes when the user opens the link
     call = chat.rows(ToolCall)[0]
     assert call.status == "completed" and call.confirmed_at is not None
     assert chat.actions() == ["tool.proposed", "tool.confirmed", "tool.completed"]
-    assert chat.events == [("password_reset.completed", {"employee_id": "E-1001"})]
+    assert chat.events == [("password_reset.requested", {"employee_id": "E-1001"})]
 
 
 def test_declining_cancels_and_changes_nothing(chat):
@@ -135,13 +137,14 @@ def test_declining_cancels_and_changes_nothing(chat):
 
 
 def test_llm_cannot_reset_someone_elses_password(chat):
+    OUTBOX.clear()
     admin_before = chat.user("E-3001").password_hash
     tool_llm = FakeToolLLM("reset_password", {"employee_id": "E-3001", "reason": "x"})
     chat.send("reset the admin password", intent="password_reset", tool_llm=tool_llm)
     chat.send("yes")
     assert chat.rows(ToolCall)[0].arguments["args"] == {"reason": "x"}
     assert chat.user("E-3001").password_hash == admin_before
-    assert chat.user("E-1001").password_hash != admin_before
+    assert [m["to"] for m in OUTBOX] == ["alex@capstonecompany.example"]   # the link went to the signed-in employee only
 
 
 def test_reset_limit_per_hour(chat, monkeypatch):
@@ -262,8 +265,9 @@ def test_webhook_sender():
 
 # ---------- HTTP endpoints ----------
 
-def test_ticket_and_audit_endpoints(chat):
+def test_ticket_and_audit_endpoints(chat, monkeypatch):
     from app import main
+    monkeypatch.setattr(settings, "webhook_secret", "")   # this test posts to the webhook without a secret
     chat.send("I need access to Jira", intent="access_request", tool_llm=FakeToolLLM("create_ticket", {"title": "Jira access"}))
     chat.send("yes")
 
@@ -274,7 +278,8 @@ def test_ticket_and_audit_endpoints(chat):
     main.app.dependency_overrides[main.get_session] = session_override
     try:
         client = TestClient(main.app)
-        agent, admin = {"X-Employee-Id": "E-2001"}, {"X-Employee-Id": "E-3001"}
+        agent = {"Authorization": f"Bearer {create_token('E-2001')}"}
+        admin = {"Authorization": f"Bearer {create_token('E-3001')}"}
         tickets = client.get("/tickets", headers=agent).json()
         assert tickets[0]["ticket_key"] == "CC-0001" and tickets[0]["requester"] == "E-1001"
         assert client.get("/tickets", params={"status": "closed"}, headers=agent).json() == []
@@ -283,6 +288,8 @@ def test_ticket_and_audit_endpoints(chat):
         actions = [a["action"] for a in client.get("/audit-logs", headers=admin).json()]
         assert "ticket.created" in actions and "tool.completed" in actions
         assert client.post("/mock/webhook", json={"event": "x"}).json() == {"received": True}
-        assert client.get("/mock/webhook/events").json()[0] == {"event": "x"}
+        assert client.get("/mock/webhook/events").status_code == 401                       # events need an admin sign-in
+        assert client.get("/mock/webhook/events", headers=agent).status_code == 403
+        assert client.get("/mock/webhook/events", headers=admin).json()[0] == {"event": "x"}
     finally:
         main.app.dependency_overrides.clear()

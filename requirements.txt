@@ -14,3 +14,4 @@ python-dotenv
 pydantic-settings
 pytest
 httpx
+PyJWT>=2.8

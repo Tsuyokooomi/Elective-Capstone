@@ -4,9 +4,13 @@ The web interface is a Streamlit app in `frontend/`. It runs as its own containe
 
 Open it at http://localhost:8501.
 
-## Sign-in (temporary)
+## Sign-in
 
-The sidebar has a "Sign in as (demo)" list with three accounts. The frontend sends the chosen employee ID in an `X-Employee-Id` header, and the API checks the role. Phase 5 replaces this with a real login and tokens. The role checks stay as they are.
+The app opens on a login form (employee ID and password). After a successful login the frontend keeps the token in the Streamlit session and sends it with every API call. The sidebar shows who is signed in and has a **Sign out** button. When the token expires, the app returns to the login screen with a message. See [authentication.md](authentication.md) for how tokens, roles and the lockout work.
+
+A reset link from the email (`/?reset_token=...`) opens a "Choose a new password" screen instead of the login form. The admin dashboard ends with a "Mock email outbox" panel that shows the reset links.
+
+The login screen lists the three demo accounts below, so the demo is easy. Set `SHOW_DEMO_LOGINS=0` in the frontend container to hide that list.
 
 | Account | Role | Screens |
 |---|---|---|

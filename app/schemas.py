@@ -1,10 +1,16 @@
 from pydantic import BaseModel, Field
 
 
-class ChatRequest(BaseModel):
+class ChatBody(BaseModel):
+    """What a client may send to POST /chat. Who is asking comes from the sign-in token, never from the body."""
     message: str = Field(min_length=1, max_length=2000)
     conversation_id: int | None = None
-    # Temporary: Phase 5 replaces this with real sign-in and roles.
+
+
+class ChatRequest(BaseModel):
+    """Internal request for handle_chat. The API fills employee_id from the signed-in user."""
+    message: str = Field(min_length=1, max_length=2000)
+    conversation_id: int | None = None
     employee_id: str = "E-1001"
 
 

@@ -37,5 +37,13 @@ class Settings(BaseSettings):
     max_resets_per_hour: int = 3
     reset_link_minutes: int = 15
 
+    # Sign-in (Phase 5A)
+    secret_key: str = ""                # signs login tokens; empty = a random key per start (everyone is signed out on restart)
+    token_minutes: int = 60             # how long a login token stays valid
+    login_max_failures: int = 5         # wrong passwords per account before a temporary lock
+    login_lock_minutes: int = 15        # window for counting failures, and how long the lock lasts
+    webhook_secret: str = ""            # if set, /mock/webhook only accepts events that carry it
+    frontend_url: str = "http://localhost:8501"   # base of the password reset link in the (mock) email
+
 
 settings = Settings()

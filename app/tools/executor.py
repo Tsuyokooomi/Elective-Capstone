@@ -1,14 +1,14 @@
-"""Runs the real actions behind the tools. The mock services here stand in for Active
-Directory (password reset) and Jira or ServiceNow (tickets)."""
+"""Runs the real actions behind the tools. The mock services here stand in for the email
+service (password reset links) and Jira or ServiceNow (tickets)."""
 import re
-import secrets
 from datetime import timedelta
 
 from sqlalchemy import func, select
 
+from app.auth import create_reset_token
 from app.config import settings
 from app.db.models import AuditLog, Conversation, Message, Ticket, ToolCall, User, utcnow
-from app.db.security import hash_password
+from app.tools.mock_email import send_reset_email
 
 YES = {"yes", "y", "yep", "yeah", "yup", "confirm", "confirmed", "ok", "okay", "sure", "proceed",
        "go ahead", "yes please", "please do", "sige", "oo", "opo", "yes po", "oo po", "sige po"}
@@ -139,10 +139,14 @@ def execute_tool_call(session, tool_call, user, conversation) -> tuple[dict, lis
         if tool_call.tool_name == "reset_password":
             if count_recent_resets(session, user.id) >= settings.max_resets_per_hour:
                 raise ToolError(RESET_LIMIT_MESSAGE.format(limit=settings.max_resets_per_hour))
-            # Mock Active Directory: replace the password with a random one and "email" a link.
-            user.password_hash = hash_password(secrets.token_urlsafe(16))
+            # Mock email service: the user gets a one-time link and chooses the new password
+            # themselves (POST /auth/reset-password). The current password stays valid until then.
+            # The token goes only into the email. It is never put in the result, chat reply or webhook.
+            token = create_reset_token(user.employee_id, user.password_hash)
+            link = f"{settings.frontend_url.rstrip('/')}/?reset_token={token}"
+            send_reset_email(user.email, link, settings.reset_link_minutes)
             result = {"email": mask_email(user.email), "expires_in_minutes": settings.reset_link_minutes}
-            events.append(("password_reset.completed", {"employee_id": user.employee_id}))
+            events.append(("password_reset.requested", {"employee_id": user.employee_id}))
         elif tool_call.tool_name == "create_ticket":
             ticket = create_ticket_row(session, user, conversation, args["title"], args["priority"])
             result = {"ticket_id": ticket.id, "ticket_key": ticket_key(ticket.id), "priority": ticket.priority}

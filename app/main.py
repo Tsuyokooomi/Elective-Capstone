@@ -1,17 +1,23 @@
 import logging
+import secrets
 from collections import deque
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 
 from app.chat_service import NotFound, handle_chat
+from app.config import settings
+from app.db.models import User
 from app.db.session import get_session, init_db
 from app.deps import (  # noqa: F401  (tests override these by name)
-    get_answer_llm, get_classifier_llm, get_retriever, get_tool_llm, ready_retriever,
+    STAFF, current_user, get_answer_llm, get_classifier_llm, get_retriever, get_tool_llm, ready_retriever,
+    require_roles,
 )
 from app.rag.retriever import HybridRetriever
+from app.routers import auth as auth_router
 from app.routers import ops
-from app.schemas import ChatRequest, ChatResponse
+from app.schemas import ChatBody, ChatRequest, ChatResponse
+from app.tools.mock_email import OUTBOX
 
 logger = logging.getLogger("aihas")
 
@@ -32,13 +38,16 @@ def health():
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(
-    req: ChatRequest,
+    body: ChatBody,
+    user: User = Depends(current_user),
     session=Depends(get_session),
     retriever: HybridRetriever = Depends(ready_retriever),
     answer_llm=Depends(get_answer_llm),
     classifier_llm=Depends(get_classifier_llm),
     tool_llm=Depends(get_tool_llm),
 ):
+    # The caller's identity comes from the token. The request body cannot name another employee.
+    req = ChatRequest(message=body.message, conversation_id=body.conversation_id, employee_id=user.employee_id)
     try:
         return handle_chat(session, req, retriever, answer_llm, classifier_llm, tool_llm)
     except NotFound as exc:
@@ -58,9 +67,10 @@ def chat(
 def kb_search(
     q: str = Query(min_length=1),
     k: int = Query(4, ge=1, le=10),
+    user: User = Depends(require_roles(*STAFF)),
     retriever: HybridRetriever = Depends(ready_retriever),
 ):
-    """Debug endpoint: show what the hybrid search returns for a question."""
+    """Debug endpoint for agents and admins: show what the hybrid search returns for a question."""
     result = retriever.search(q, top_k=k)
     return {
         "query": q,
@@ -85,14 +95,26 @@ WEBHOOK_EVENTS: deque = deque(maxlen=50)
 
 @app.post("/mock/webhook")
 async def receive_webhook(request: Request):
+    # If WEBHOOK_SECRET is set, only senders that know it are accepted
+    if settings.webhook_secret and not secrets.compare_digest(
+        request.headers.get("x-webhook-secret", "").encode(), settings.webhook_secret.encode()
+    ):
+        raise HTTPException(status_code=401, detail="Bad webhook secret")
     WEBHOOK_EVENTS.appendleft(await request.json())
     return {"received": True}
 
 
 @app.get("/mock/webhook/events")
-def webhook_events():
+def webhook_events(user: User = Depends(require_roles("admin"))):
     return list(WEBHOOK_EVENTS)
 
 
+@app.get("/mock/outbox")
+def mock_outbox(user: User = Depends(require_roles("admin"))):
+    """The fake email service: password reset emails appear here. Demo only."""
+    return list(OUTBOX)
+
+
 # Registered last, so fixed paths such as /kb/search win over /kb/{sop_id}
+app.include_router(auth_router.router)
 app.include_router(ops.router)

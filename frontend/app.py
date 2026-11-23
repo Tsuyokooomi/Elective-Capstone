@@ -8,12 +8,13 @@ import api
 
 st.set_page_config(page_title="CapstoneCompany IT Helpdesk", page_icon="🛠️", layout="wide")
 
-# Placeholder sign-in. Phase 5 replaces this with a real login form.
-DEMO_USERS = {
-    "E-1001 · Alex Employee": "E-1001",
-    "E-2001 · Ana Agent": "E-2001",
-    "E-3001 · Adam Admin": "E-3001",
-}
+# Shown under the login form so the demo is easy. Set SHOW_DEMO_LOGINS=0 to hide it.
+SHOW_DEMO_LOGINS = os.getenv("SHOW_DEMO_LOGINS", "1") != "0"
+DEMO_ACCOUNTS = [
+    ("E-1001", "Demo-Employee-123", "Employee"),
+    ("E-2001", "Demo-Agent-123", "Agent"),
+    ("E-3001", "Demo-Admin-123", "Admin"),
+]
 VIEWS_BY_ROLE = {
     "employee": ["Chat"],
     "agent": ["Agent queue", "Chat"],
@@ -51,8 +52,8 @@ def render_message(item: dict):
                                               "latency_ms") if k in meta})
 
 
-def load_conversation(employee_id: str, conversation_id: int):
-    data = api.conversation_messages(employee_id, conversation_id)
+def load_conversation(token: str, conversation_id: int):
+    data = api.conversation_messages(token, conversation_id)
     history = []
     for m in data["messages"]:
         if m["sender"] == "user":
@@ -71,14 +72,14 @@ def reset_chat():
     st.session_state.pending, st.session_state.agent_handling = False, False
 
 
-def send(employee_id: str, text: str):
+def send(token: str, text: str):
     st.session_state.history.append({"role": "user", "content": text})
     with st.chat_message("user"):
         st.markdown(text)
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             try:
-                resp = api.chat(employee_id, text, st.session_state.conversation_id)
+                resp = api.chat(token, text, st.session_state.conversation_id)
             except api.ApiError as exc:
                 show_error(exc)
                 return False
@@ -101,7 +102,7 @@ def send(employee_id: str, text: str):
 
 
 def chat_view(user: dict):
-    uid = user["employee_id"]
+    token = user["token"]
     for key, default in (("history", []), ("conversation_id", None), ("pending", False),
                          ("agent_handling", False)):
         st.session_state.setdefault(key, default)
@@ -114,14 +115,14 @@ def chat_view(user: dict):
             reset_chat()
             st.rerun()
         try:
-            convs = api.conversations(uid) if user["role"] == "employee" else []
+            convs = api.conversations(token) if user["role"] == "employee" else []
         except api.ApiError:
             convs = []
         if convs:
             labels = {f"#{c['id']} · {c['status']} · {c['preview'] or '(empty)'}": c["id"] for c in convs}
             choice = st.selectbox("Open an earlier chat", ["—"] + list(labels), key="conv_picker")
             if choice != "—" and labels[choice] != st.session_state.conversation_id:
-                load_conversation(uid, labels[choice])
+                load_conversation(token, labels[choice])
                 st.rerun()
 
     for item in st.session_state.history:
@@ -130,7 +131,7 @@ def chat_view(user: dict):
     if st.session_state.agent_handling:
         st.info("A human agent is handling this chat.")
         if st.button("Check for agent replies", key="refresh_chat"):
-            load_conversation(uid, st.session_state.conversation_id)
+            load_conversation(token, st.session_state.conversation_id)
             st.rerun()
 
     quick = None
@@ -143,14 +144,14 @@ def chat_view(user: dict):
 
     prompt = st.chat_input("Describe your IT problem")
     text = prompt or quick
-    if text and send(uid, text):
+    if text and send(token, text):
         st.rerun()   # redraw so the Yes and No buttons match the new state
 
 
 # ------------------------------------------------------------------ agent queue
 
 def agent_view(user: dict):
-    uid = user["employee_id"]
+    token = user["token"]
     st.title("Agent queue")
 
     left, right = st.columns([2, 1])
@@ -161,7 +162,7 @@ def agent_view(user: dict):
         st.rerun()
 
     try:
-        rows = api.tickets(uid)
+        rows = api.tickets(token)
     except api.ApiError as exc:
         return show_error(exc)
     if status == "active":
@@ -184,16 +185,16 @@ def agent_view(user: dict):
     buttons = st.columns(4)
     try:
         if buttons[0].button("Assign to me", key="assign_me"):
-            api.update_ticket(uid, ticket["id"], assign_to_me=True)
+            api.update_ticket(token, ticket["id"], assign_to_me=True)
             st.rerun()
         if buttons[1].button("Resolve", key="resolve"):
-            api.update_ticket(uid, ticket["id"], status="resolved")
+            api.update_ticket(token, ticket["id"], status="resolved")
             st.rerun()
         if buttons[2].button("Close", key="close"):
-            api.update_ticket(uid, ticket["id"], status="closed")
+            api.update_ticket(token, ticket["id"], status="closed")
             st.rerun()
         if buttons[3].button("Reopen", key="reopen"):
-            api.update_ticket(uid, ticket["id"], status="in_progress")
+            api.update_ticket(token, ticket["id"], status="in_progress")
             st.rerun()
     except api.ApiError as exc:
         show_error(exc)
@@ -204,7 +205,7 @@ def agent_view(user: dict):
 
     st.markdown("**Conversation**")
     try:
-        data = api.conversation_messages(uid, cid)
+        data = api.conversation_messages(token, cid)
     except api.ApiError as exc:
         return show_error(exc)
     for m in data["messages"]:
@@ -217,7 +218,7 @@ def agent_view(user: dict):
         reply = st.text_area("Reply to the employee", key=f"reply_text_{cid}")
         if st.form_submit_button("Send reply") and reply.strip():
             try:
-                api.agent_reply(uid, cid, reply.strip())
+                api.agent_reply(token, cid, reply.strip())
                 st.rerun()
             except api.ApiError as exc:
                 show_error(exc)
@@ -230,12 +231,12 @@ def pct(value):
 
 
 def dashboard_view(user: dict):
-    uid = user["employee_id"]
+    token = user["token"]
     st.title("Dashboard")
     if st.button("Refresh", key="refresh_dashboard"):
         st.rerun()
     try:
-        m = api.metrics(uid)
+        m = api.metrics(token)
     except api.ApiError as exc:
         return show_error(exc)
 
@@ -277,21 +278,34 @@ def dashboard_view(user: dict):
 
     st.markdown("**Latest audit log**")
     try:
-        logs = api.audit_logs(uid, 30)
+        logs = api.audit_logs(token, 30)
         if logs:
             st.dataframe(pd.DataFrame(logs)[["created_at", "action", "entity_type", "entity_id", "user_id"]],
                          hide_index=True, width="stretch")
     except api.ApiError as exc:
         show_error(exc)
 
+    with st.expander("Mock email outbox (demo)"):
+        st.caption("The email service is mocked. Password reset links appear here instead of in a real inbox.")
+        try:
+            mails = api.outbox(token)
+        except api.ApiError as exc:
+            show_error(exc)
+        else:
+            if not mails:
+                st.caption("No emails sent yet.")
+            for mail in mails[:5]:
+                st.markdown(f"**To {mail['to']}** · {mail['subject']} · {mail['sent_at']}")
+                st.code(mail["link"], language=None)
+
 
 # ------------------------------------------------------------------ knowledge base
 
 def kb_view(user: dict):
-    uid = user["employee_id"]
+    token = user["token"]
     st.title("Knowledge base")
     try:
-        docs = api.kb_list(uid)
+        docs = api.kb_list(token)
     except api.ApiError as exc:
         return show_error(exc)
 
@@ -303,44 +317,122 @@ def kb_view(user: dict):
     if col1.button("Re-index changed SOPs", key="reindex"):
         try:
             with st.spinner("Indexing..."):
-                st.success(f"Done: {api.kb_reindex(uid)}")
+                st.success(f"Done: {api.kb_reindex(token)}")
         except api.ApiError as exc:
             show_error(exc)
     if col2.button("Rebuild everything", key="reindex_force"):
         try:
             with st.spinner("Indexing..."):
-                st.success(f"Done: {api.kb_reindex(uid, force=True)}")
+                st.success(f"Done: {api.kb_reindex(token, force=True)}")
         except api.ApiError as exc:
             show_error(exc)
 
     pick = st.selectbox("Preview an SOP", [f"{d['sop_id']} · {d['title']}" for d in docs], key="sop_pick")
     try:
-        st.markdown(api.kb_doc(uid, pick.split(" · ")[0])["text"])
+        st.markdown(api.kb_doc(token, pick.split(" · ")[0])["text"])
     except api.ApiError as exc:
         show_error(exc)
+
+
+# ------------------------------------------------------------------ sign in
+
+SESSION_KEYS = ("token", "signed_in_as", "view", "history", "conversation_id", "pending", "agent_handling",
+                "conv_picker")
+
+
+def sign_out(notice: str | None = None):
+    for key in SESSION_KEYS:
+        st.session_state.pop(key, None)
+    if notice:
+        st.session_state["notice"] = notice
+
+
+def login_view():
+    st.title("CapstoneCompany IT Helpdesk")
+    notice = st.session_state.pop("notice", None)
+    if notice:
+        st.warning(notice)
+    done = st.session_state.pop("login_success", None)
+    if done:
+        st.success(done)
+
+    with st.form("login"):
+        employee_id = st.text_input("Employee ID", key="login_id")
+        password = st.text_input("Password", type="password", key="login_password")
+        submitted = st.form_submit_button("Sign in", type="primary")
+    if submitted:
+        try:
+            result = api.login(employee_id.strip(), password)
+        except api.ApiError as exc:
+            show_error(exc)
+        else:
+            st.session_state.token = result["access_token"]
+            st.rerun()
+
+    if SHOW_DEMO_LOGINS:
+        with st.expander("Demo accounts"):
+            st.markdown("\n".join(f"- **{role}**: `{who}` / `{pw}`" for who, pw, role in DEMO_ACCOUNTS))
+
+
+def reset_view(reset_token: str):
+    """Opened from the link in the reset email: ?reset_token=..."""
+    st.title("Choose a new password")
+    with st.form("reset"):
+        new_password = st.text_input("New password", type="password", key="reset_new")
+        confirm = st.text_input("Repeat the new password", type="password", key="reset_confirm")
+        submitted = st.form_submit_button("Change password", type="primary")
+    st.caption("At least 10 characters, with a letter and a number. The link works once.")
+    if submitted:
+        if new_password != confirm:
+            st.error("The two passwords do not match.")
+        else:
+            try:
+                api.reset_password(reset_token, new_password)
+            except api.ApiError as exc:
+                show_error(exc)
+            else:
+                st.query_params.clear()
+                st.session_state["reset_done"] = True   # ignore the old link even if the address bar still has it
+                st.session_state["login_success"] = "Your password was changed. Sign in with the new password."
+                st.rerun()
+    if st.button("Back to sign in", key="reset_cancel"):
+        st.query_params.clear()
+        st.session_state["reset_done"] = True
+        st.rerun()
 
 
 # ------------------------------------------------------------------ main
 
 def main():
-    with st.sidebar:
-        st.header("CapstoneCompany IT")
-        who = st.selectbox("Sign in as (demo)", list(DEMO_USERS), key="who")
-    employee_id = DEMO_USERS[who]
+    reset_token = None if st.session_state.get("reset_done") else st.query_params.get("reset_token")
+    if reset_token:
+        return reset_view(reset_token)
+
+    token = st.session_state.get("token")
+    if not token:
+        return login_view()
 
     try:
-        user = api.request("GET", "/me", employee_id)
+        user = api.request("GET", "/me", token)
     except api.ApiError as exc:
+        if exc.status == 401:   # the token expired or the account no longer exists
+            sign_out("Your session ended. Please sign in again.")
+            st.rerun()
         return show_error(exc)
+    user["token"] = token
 
-    if st.session_state.get("signed_in_as") != employee_id:   # switching user starts fresh
-        st.session_state.signed_in_as = employee_id
-        st.session_state.pop("view", None)   # land on the first screen for the new role
+    if st.session_state.get("signed_in_as") != user["employee_id"]:   # a different person starts fresh
+        st.session_state.signed_in_as = user["employee_id"]
+        st.session_state.pop("view", None)   # land on the first screen for the role
         reset_chat()
 
     views = VIEWS_BY_ROLE[user["role"]]
     with st.sidebar:
-        st.caption(f"Role: {user['role']}")
+        st.header("CapstoneCompany IT")
+        st.caption(f"{user['name']} · {user['role']}")
+        if st.button("Sign out", key="sign_out"):
+            sign_out()
+            st.rerun()
         view = st.radio("Go to", views, key="view")
 
     {"Chat": chat_view, "Agent queue": agent_view, "Dashboard": dashboard_view,

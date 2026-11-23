@@ -17,7 +17,8 @@ def send_webhook(event: str, data: dict, url: str | None = None, post=None) -> b
     post = post or httpx.post
     body = {"event": event, "sent_at": datetime.now(timezone.utc).isoformat(), "data": data}
     try:
-        response = post(url, json=body, timeout=3.0)
+        extra = {"headers": {"X-Webhook-Secret": settings.webhook_secret}} if settings.webhook_secret else {}
+        response = post(url, json=body, timeout=3.0, **extra)
         return response.status_code < 400
     except Exception:
         logger.warning("webhook %s failed", event, exc_info=True)

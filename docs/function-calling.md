@@ -4,7 +4,7 @@
 
 | Tool | What it does | Who calls it | Needs confirmation |
 |---|---|---|---|
-| `reset_password` | Starts a password reset for the signed-in employee (mock Active Directory) | The LLM, for the `password_reset` intent | Yes |
+| `reset_password` | Starts a password reset for the signed-in employee: emails a one-time link (mock email service). The password changes only when the employee uses the link | The LLM, for the `password_reset` intent | Yes |
 | `create_ticket` | Opens a ticket (mock Jira or ServiceNow) | The LLM, for `access_request` and `hardware_request` | Yes |
 | `escalate_to_human` | Opens a ticket and marks the chat as escalated | The system, for `security_incident`, `mfa_lost`, and `human_request` | No |
 
@@ -35,11 +35,11 @@ If the model fails or makes no tool call, the code uses default arguments. The r
 
 ## Audit actions
 
-`tool.proposed`, `tool.confirmed`, `tool.completed`, `tool.failed`, `tool.cancelled`, `ticket.created`, `ticket.priority_raised`, `chat.escalated`, `guardrail.blocked`.
+`tool.proposed`, `tool.confirmed`, `tool.completed`, `tool.failed`, `tool.cancelled`, `ticket.created`, `ticket.priority_raised`, `chat.escalated`, `guardrail.blocked`, `auth.login_ok`, `auth.login_failed`, `auth.password_reset`.
 
 ## Webhooks
 
-After a ticket is created, an escalation opens, or a reset completes, the system sends a JSON event to `WEBHOOK_URL` (for example an n8n webhook). Events: `ticket.created`, `ticket.escalated`, `password_reset.completed`. The payload holds no passwords and no message text. A failed webhook never breaks the chat.
+After a ticket is created, an escalation opens, or a reset completes, the system sends a JSON event to `WEBHOOK_URL` (for example an n8n webhook). Events: `ticket.created`, `ticket.escalated`, `password_reset.requested` (the link was emailed), `password_reset.completed` (the employee chose a new password). The payload holds no passwords, no reset tokens and no message text. A failed webhook never breaks the chat.
 
 For a demo without n8n, set `WEBHOOK_URL=http://localhost:8080/mock/webhook`. The events show at `GET /mock/webhook/events`.
 
@@ -49,10 +49,12 @@ For a demo without n8n, set `WEBHOOK_URL=http://localhost:8080/mock/webhook`. Th
 |---|---|
 | GET `/tickets` | List tickets (`?status=open`) |
 | GET `/tickets/{id}` | One ticket |
-| GET `/audit-logs` | Latest audit rows |
-| POST `/mock/webhook` and GET `/mock/webhook/events` | Demo webhook receiver |
+| GET `/audit-logs` | Latest audit rows (admin only) |
+| POST `/mock/webhook` | Demo webhook receiver. If `WEBHOOK_SECRET` is set, the sender must send it in `X-Webhook-Secret` |
+| GET `/mock/webhook/events` | Events the receiver got (admin only) |
+| GET `/mock/outbox` | The fake email service's sent messages, including reset links (admin only) |
 
-Phase 5 puts these behind sign-in and roles.
+All of these now need a login token, and most need a role. See [authentication.md](authentication.md).
 
 ## Ticket priorities (KB-019)
 

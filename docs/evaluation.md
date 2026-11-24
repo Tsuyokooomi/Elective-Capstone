@@ -1,0 +1,75 @@
+# Evaluation (Phase 5D)
+
+The assistant is scored in four ways. Each one is repeatable, so a change to a prompt, a threshold or a model can be compared before and after.
+
+| What | Needs the models? | Time | Command |
+|---|---|---|---|
+| Guardrail red-team set | No | seconds | `python -m app.eval.run_eval --suite guardrails` |
+| Single questions (113) | Yes | 10 to 20 min | `python -m app.eval.run_eval --suite single` |
+| Multi-turn scenarios (17) | Yes | 5 to 10 min | `python -m app.eval.run_eval --suite conversations` |
+| Load test of the running API | Yes (phase 3) | 2 to 5 min | `python -m app.eval.load_test` |
+
+Run everything with `docker compose exec api python -m app.eval.run_eval`. Useful options: `--judge` (also grade answers with the LLM), `--limit 10` (quick try), `--types normal,injection` (only some question types). Results are written to `data/eval/` as JSON and Markdown, and the newest report is always `data/eval/latest.md`. To keep a result for the defense, copy `latest.md` into `docs/` and cite the date and model in it.
+
+The run uses a **scratch database**. It never changes your real conversations, tickets or dashboard numbers.
+
+## The evaluation files (in `tests/`)
+
+| File | Contents |
+|---|---|
+| `eval_set.json` | 113 questions: 94 English and 19 Filipino. Types: normal, overlap (two SOPs could fit), no_answer (no SOP covers it), out_of_scope, pii (personal data inside) and injection (attacks). Every SOP and every intent is covered. Each item states the expected intent, route, tool and SOPs |
+| `eval_conversations.json` | 17 multi-turn scenarios: follow-up questions, thanks, password reset and ticket flows, declining an action, both escalation rules, phishing, lost MFA phone, an attack in the middle of a chat, a typed phone number or code |
+| `eval_redteam.json` | 43 attacks in 8 categories, 35 normal messages that must NOT be blocked, 22 PII cases, 11 output-filter cases. Needs no model, so it also runs in `pytest` |
+
+## What is measured
+
+| Metric | How it is computed |
+|---|---|
+| **Routing accuracy** | The route taken (answer, action, escalate, decline, blocked) equals the expected route |
+| **Intent accuracy** | The classifier's intent equals the expected intent |
+| **Tool choice** | For action intents, the right tool is proposed and the assistant waits for YES |
+| **Escalation recall** | Cases that must reach a person (security, lost MFA device, human request) did |
+| **Retrieval hit rate and MRR** | An expected SOP is among the retrieved chunks. MRR is the mean of 1 / rank of the first expected SOP |
+| **Grounded answers** | The answer cites at least one SOP, and one of them is a correct one |
+| **Made-up citations** | The model cited an SOP that was not retrieved (the service strips these and logs them) |
+| **Honest "no procedure"** | For questions no SOP covers, the reply is the fixed "I don't have a procedure" message with no citation |
+| **Faithfulness, firm check** | Every number in an answer (times, limits, sizes) appears in the SOP text it cites. Catches invented figures |
+| **Faithfulness and relevance, LLM judge** | With `--judge`, the model rates each grounded answer: is every claim supported by the SOP, and does it answer the question. A small model judging itself is a rough signal only, so these never decide whether a question passed |
+| **Injection block rate and false blocks** | Attacks that were blocked, and normal messages that were wrongly blocked |
+| **PII redaction** | Personal data in the message was redacted before storage |
+| **Latency** | Milliseconds for the whole pipeline per message: mean, p50, p95, max, split by route. Blocked attacks use no LLM and take a few milliseconds |
+| **Ticket deflection rate** | Over the "routine" scenarios (first-level problems the assistant should solve alone): the share that ended without a ticket or a human, either resolved after the user said thanks, or answered with a citation |
+| **Correct hand-off** | Over the "escalation" scenarios: the share that reached a person |
+| **Actions completed** | Over the "action" scenarios: password resets and tickets that were completed after YES |
+
+A question passes only if every applicable deterministic check passes.
+
+## Load test
+
+`python -m app.eval.load_test` runs against the live API in four steps:
+
+1. **Cheap endpoints** (`/health`, `/me`, `/kb`) with many parallel requests: requests per second, latency percentiles, server errors.
+2. **Rate limit and guardrail path:** one user sends `CHAT_PER_MINUTE + 10` attack messages at once. Exactly `CHAT_PER_MINUTE` must be accepted and the rest must get 429 with a `Retry-After` header. Because blocked messages make no LLM call, this also shows the guardrails keep the API fast under attack.
+3. **Real questions** through the model with a few in parallel. A local model handles one request at a time, so latency grows with the number of users. This is the honest capacity figure for the demo setup.
+4. **Clean-up:** the conversations and audit rows the test created are deleted again (`--keep-data` to skip).
+
+Do not use the web app during the test, because the rate limiter counts all traffic from the same user. If you changed `CHAT_PER_MINUTE`, pass it as `--expect-limit`.
+
+## Reading the results
+
+| Weak spot | Likely cause | What to try |
+|---|---|---|
+| Low retrieval hit rate | Chunks too big or too small, SOP wording far from user wording | Change `CHUNK_SIZE`, add wording to the SOP, check `evaluate_retrieval` |
+| Good retrieval, low "grounded answers" | The model ignores the context or cites the wrong SOP | Tighten the answer prompt, lower the temperature |
+| Wrong intents | Overlapping intent descriptions | Edit examples in `app/rag/prompts.py`, re-run |
+| "No procedure" replies missing | `MIN_VECTOR_SCORE` too low | Raise it with the help of `evaluate_retrieval` (answerable and unanswerable scores overlap, so expect a trade-off) |
+| Answerable questions refused | `MIN_VECTOR_SCORE` too high | Lower it |
+| High latency | Model size, long prompts | Smaller model, lower `HISTORY_TURNS`, fewer chunks (`TOP_K`) |
+
+## Limits to mention in the defense
+
+- The eval set is small: 113 questions, and one run is one sample. Local models are not fully deterministic, so a few results can change between runs.
+- Expected SOPs were labelled by hand. An item that fails every time is worth checking against the SOP, because the label may be wrong.
+- The LLM judge is the same small model that wrote the answer. The firm evidence is the deterministic checks.
+- Deflection is measured on scripted scenarios, not on real employees, so it shows what the assistant is able to do, not what real users will do.
+- Load numbers come from one laptop running the model, the API and the database together.

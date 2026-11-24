@@ -19,9 +19,21 @@ docker compose exec api python -m pytest tests -q
 docker compose exec frontend python -m pytest tests -q
 ```
 
+## Evaluate
+```
+docker compose exec api python -m app.eval.run_eval                     # full evaluation (several minutes)
+docker compose exec api python -m app.eval.run_eval --suite guardrails  # red-team check, seconds
+docker compose exec api python -m app.eval.load_test                    # stress test of the running API
+```
+Reports are written to `data/eval/`. See `docs/evaluation.md`.
+
 ## Documentation
 - `docs/prompt-taxonomy.md`: intents, routes, and escalation rules
 - `docs/database-schema.md`: tables
 - `docs/rag-pipeline.md`: indexing, hybrid search, citations
 - `docs/function-calling.md`: tools, confirmation, tickets, webhooks
 - `docs/ui-and-dashboard.md`: screens, roles, metrics
+- `docs/authentication.md`: login tokens, roles, password reset link, lockout
+- `docs/guardrails.md`: rate limits, PII redaction, injection check, output filter
+- `docs/memory-and-escalation.md`: conversation memory and the two escalation rules
+- `docs/evaluation.md`: how the assistant is scored, and how to run the evaluation and the load test

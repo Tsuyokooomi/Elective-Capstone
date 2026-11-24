@@ -38,7 +38,7 @@ All 20 SOPs map to at least one intent.
 
 Each message passes through these steps in order.
 
-1. **Guardrails.** Redact PII. Check for prompt injection. If the check fails, return the blocked message and stop.
+1. **Guardrails.** Redact PII. Check for prompt injection (see [guardrails.md](guardrails.md)). If the check fails, return the blocked message and stop.
 2. **Security pattern check.** A rule-based check runs before the LLM. If the text matches a phishing, malware, or lost-device pattern, the intent is set to `security_incident` at once. A weak classifier can never hide an urgent case.
 3. **Intent classification.** The LLM returns JSON with `intent`, `confidence`, and `urgent`. If the output is malformed, the code falls back to `out_of_scope`.
 4. **Routing.** The intent's route decides the next step.
@@ -54,8 +54,8 @@ The assistant hands off to a human when any of these is true:
 
 - The intent is `security_incident`, `mfa_lost`, or `human_request`.
 - An SOP says "Escalate to a human if" and the user's case matches.
-- The same problem is still open after two answers from the assistant.
-- Retrieval finds no good match twice in a row.
+- The same problem is still open after two answers from the assistant. *(Implemented in Phase 5C: after 2 answers that cited an SOP, a short "it still does not work" message goes to a human. See [memory-and-escalation.md](memory-and-escalation.md).)*
+- Retrieval finds no good match twice in a row. *(Implemented in Phase 5C.)*
 - A tool call fails.
 - The user shows repeated frustration.
 

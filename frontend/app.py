@@ -49,7 +49,7 @@ def render_message(item: dict):
                 st.caption("Sources: " + ", ".join(f"{s['sop_id']} {s['title']}" for s in meta["sources"]))
             with st.expander("Details"):
                 st.json({k: meta[k] for k in ("intent", "confidence", "route", "tool", "tool_source", "grounded",
-                                              "latency_ms") if k in meta})
+                                              "guardrail_flags", "latency_ms") if k in meta})
 
 
 def load_conversation(token: str, conversation_id: int):

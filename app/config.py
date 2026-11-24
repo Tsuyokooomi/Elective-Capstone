@@ -45,5 +45,15 @@ class Settings(BaseSettings):
     webhook_secret: str = ""            # if set, /mock/webhook only accepts events that carry it
     frontend_url: str = "http://localhost:8501"   # base of the password reset link in the (mock) email
 
+    # Rate limits (Phase 5B): requests allowed per minute
+    chat_per_minute: int = 20           # per signed-in user, on POST /chat
+    login_per_minute: int = 20          # per IP address, on POST /auth/login
+    reset_per_minute: int = 10          # per IP address, on POST /auth/reset-password
+
+    # Conversation memory and escalation rules (Phase 5C)
+    history_turns: int = 3              # earlier question-and-answer pairs given to the model
+    history_chars: int = 1500           # hard cap on the history text, to keep the local model fast
+    max_unresolved_answers: int = 2     # grounded answers before "it still does not work" goes to a human
+
 
 settings = Settings()

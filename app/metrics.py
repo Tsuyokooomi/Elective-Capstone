@@ -30,7 +30,7 @@ def compute_metrics(session) -> dict:
     ticket_conversation_ids = {t.conversation_id for t in tickets if t.conversation_id is not None}
     resolved_by_ai = sum(1 for c in conversations if c.resolved_by_ai)
     escalations = sum(1 for a in audits if a.action == "chat.escalated")
-    blocked = sum(1 for a in audits if a.action == "guardrail.blocked")
+    blocked = sum(1 for a in audits if a.action.startswith("guardrail."))   # input blocks and output filtering
 
     # Mean time to resolution, in minutes
     durations = [

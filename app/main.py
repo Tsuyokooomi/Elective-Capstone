@@ -7,6 +7,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request
 
 from app.chat_service import NotFound, handle_chat
 from app.config import settings
+from app.ratelimit import enforce
 from app.db.models import User
 from app.db.session import get_session, init_db
 from app.deps import (  # noqa: F401  (tests override these by name)
@@ -46,6 +47,8 @@ def chat(
     classifier_llm=Depends(get_classifier_llm),
     tool_llm=Depends(get_tool_llm),
 ):
+    enforce(f"chat:{user.id}", settings.chat_per_minute, 60,
+            "You are sending messages too fast. Try again in {seconds} seconds.")
     # The caller's identity comes from the token. The request body cannot name another employee.
     req = ChatRequest(message=body.message, conversation_id=body.conversation_id, employee_id=user.employee_id)
     try:

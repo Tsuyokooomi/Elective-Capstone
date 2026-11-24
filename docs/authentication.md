@@ -57,7 +57,7 @@ The mock email service keeps the last 20 messages in memory (lost on restart), p
 
 ## Known limits (honest notes for the defense)
 
-- Wrong attempts for an ID that does not exist cannot be counted per account, because the audit log needs a user row. A per-IP rate limit is planned for 5B.
+- Wrong attempts for an ID that does not exist cannot be counted per account, because the audit log needs a user row. They are limited per IP address instead (`LOGIN_PER_MINUTE`, see [guardrails.md](guardrails.md)). Behind a proxy or shared network, many users can look like one address.
 - Tokens cannot be revoked before they expire. Signing out only forgets the token in the browser. A short expiry limits the risk. A token blocklist would be the next step.
 - The Streamlit session keeps the token in server memory. Refreshing the browser tab starts a new session, so the user signs in again.
 - The reset request needs a signed-in session, so it covers "I want a new password" but not "I cannot sign in at all". A public "Forgot password" page, tied to a real mailbox, would be the next step.

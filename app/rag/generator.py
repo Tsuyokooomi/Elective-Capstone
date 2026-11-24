@@ -20,7 +20,8 @@ class Answer:
     used_llm: bool = False
 
 
-def generate_answer(question: str, search: SearchResult, llm, min_score: float | None = None) -> Answer:
+def generate_answer(question: str, search: SearchResult, llm, min_score: float | None = None,
+                    history: list[dict] | None = None) -> Answer:
     min_score = settings.min_vector_score if min_score is None else min_score
 
     # No good match: do not ask the LLM, so it has nothing to invent from.
@@ -31,7 +32,7 @@ def generate_answer(question: str, search: SearchResult, llm, min_score: float |
     response = llm.chat(
         [
             ChatMessage(role="system", content=RAG_SYSTEM_PROMPT),
-            ChatMessage(role="user", content=build_rag_user_prompt(question, chunks)),
+            ChatMessage(role="user", content=build_rag_user_prompt(question, chunks, history)),
         ]
     )
     text = THINK_RE.sub("", response.message.content or "").strip()

@@ -39,4 +39,5 @@ class ChatResponse(BaseModel):
     tool_result: dict | None = None
     tool_source: str | None = None   # "llm" if the model chose the tool arguments, "fallback" if not
     pii_redacted: bool
+    guardrail_flags: list[str] = []   # what the output filter changed in the reply, if anything
     latency_ms: int

@@ -44,6 +44,7 @@ docker compose exec api python -m app.rag.indexer --force    # rebuild everythin
 docker compose exec api python -m app.rag.search "question"  # try the search
 docker compose exec api python -m app.rag.evaluate_retrieval # score retrieval, suggest a threshold
 docker compose exec api python -m pytest tests -q            # run all tests
+docker compose exec api python -m app.eval.run_eval          # score the whole pipeline (see evaluation.md)
 ```
 
 ## Settings (in `app/config.py`, override in `.env`)

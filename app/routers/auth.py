@@ -9,7 +9,7 @@ where the lock is counted, so no extra table is needed."""
 import hmac
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
@@ -18,6 +18,7 @@ from app.config import settings
 from app.db.models import AuditLog, User, utcnow
 from app.db.security import hash_password, verify_password
 from app.db.session import get_session
+from app.ratelimit import enforce
 from app.tools.executor import audit
 from app.tools.webhook import send_webhook
 
@@ -70,8 +71,15 @@ def _user_out(user: User) -> dict:
     return {"employee_id": user.employee_id, "name": user.name, "role": user.role}
 
 
+def client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
 @router.post("/auth/login")
-def login(body: LoginRequest, session=Depends(get_session)):
+def login(body: LoginRequest, request: Request, session=Depends(get_session)):
+    # Per IP address, so guesses at employee IDs that do not exist are limited too
+    enforce(f"login:{client_ip(request)}", settings.login_per_minute, 60,
+            "Too many sign-in attempts from this address. Try again in {seconds} seconds.")
     user = session.scalar(select(User).where(User.employee_id == body.employee_id))
 
     if user is not None and recent_failures(session, user.id) >= settings.login_max_failures:
@@ -98,7 +106,9 @@ def login(body: LoginRequest, session=Depends(get_session)):
 
 
 @router.post("/auth/reset-password")
-def reset_password(body: ResetRequest, session=Depends(get_session)):
+def reset_password(body: ResetRequest, request: Request, session=Depends(get_session)):
+    enforce(f"reset:{client_ip(request)}", settings.reset_per_minute, 60,
+            "Too many attempts from this address. Try again in {seconds} seconds.")
     parsed = read_reset_token(body.token)
     if parsed is None:
         raise HTTPException(status_code=400, detail=BAD_RESET_LINK)

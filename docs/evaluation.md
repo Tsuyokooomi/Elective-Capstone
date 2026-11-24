@@ -62,9 +62,22 @@ Do not use the web app during the test, because the rate limiter counts all traf
 | Low retrieval hit rate | Chunks too big or too small, SOP wording far from user wording | Change `CHUNK_SIZE`, add wording to the SOP, check `evaluate_retrieval` |
 | Good retrieval, low "grounded answers" | The model ignores the context or cites the wrong SOP | Tighten the answer prompt, lower the temperature |
 | Wrong intents | Overlapping intent descriptions | Edit examples in `app/rag/prompts.py`, re-run |
-| "No procedure" replies missing | `MIN_VECTOR_SCORE` too low | Raise it with the help of `evaluate_retrieval` (answerable and unanswerable scores overlap, so expect a trade-off) |
+| "No procedure" replies missing | `MIN_VECTOR_SCORE` too low, or the model answers from general knowledge | Read the replies in `data/eval/eval-*.json`. Raise the threshold with the help of `evaluate_retrieval` (answerable and unanswerable scores overlap, so expect a trade-off) |
 | Answerable questions refused | `MIN_VECTOR_SCORE` too high | Lower it |
 | High latency | Model size, long prompts | Smaller model, lower `HISTORY_TURNS`, fewer chunks (`TOP_K`) |
+
+## Fixes after the 2026-11-24 run
+
+That run passed 97/113 questions and 15/17 scenarios. The failures had three causes:
+
+| Failed check | Questions | Cause | Fix |
+|---|---|---|---|
+| `no_invalid_citation` | Q05, Q16, Q22, Q45, Q53, Q97 | The model repeated SOP IDs that the retrieved SOP mentions ("see KB-002", "follow KB-018"), and copied `[KB-001]`, the example in the answer prompt | The prompt has no real SOP ID any more and says that IDs mentioned inside an SOP are not sources. IDs a retrieved SOP mentions are counted as references, not made-up citations |
+| `no_answer`, C10 | Q44, Q89, Q90, C10 | The search found a related SOP, and the model's own "I don't have a procedure…" reply did not match the fixed message that the check and the `no_match_twice` rule look for | That reply, and an answer that still cites no SOP after one retry, now becomes the fixed message |
+| `cited`, C01 | Q57, Q71, Q78, Q95, C01 | The model answered without a citation | The model is asked once to add its citations |
+| `intent` | Q21, Q71, Q91, Q92 | `policy_info` said "or whether something is allowed", which pulled Wi-Fi, mailbox and device questions to it; "shared mailbox" looked like an access request | Intent descriptions reworded |
+
+Q45 also failed `numbers_supported` (a number in the answer that is not in KB-008). The cause cannot be seen in the Markdown report; check the reply in the run's JSON file. The fixes are covered by `tests/test_citations.py`, which uses fake models: re-run `run_eval --judge` with the real model to measure them.
 
 ## Limits to mention in the defense
 

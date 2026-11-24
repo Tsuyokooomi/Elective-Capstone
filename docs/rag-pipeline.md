@@ -8,7 +8,9 @@
 4. **Intent classification.** The LLM returns JSON (intent, confidence, urgent). If the model is unsure it says "out of scope" with low confidence, and the system lets retrieval decide.
 5. **Routing.** Each intent maps to a route (answer, action, escalate, decline). See `prompt-taxonomy.md`.
 6. **Retrieval and answer.** For answer, action, and some escalate routes, the system runs hybrid search and asks the LLM to answer from the retrieved SOP text.
-7. **Citation check.** The reply keeps only citations that match retrieved SOPs. Made-up SOP IDs are dropped from the sources list.
+7. **Citation check.** The reply keeps only citations that match retrieved SOPs, and only those are shown as sources. An SOP ID that a retrieved SOP itself mentions ("see KB-002") is a reference, not a made-up citation: its brackets are removed and the ID stays as plain text. Any other SOP ID is made up: it is removed and counted in `invalid_citations`.
+   - If the model says it has no procedure and cites nothing, the reply becomes the fixed "no procedure" message, so the `no_match_twice` rule can count it.
+   - If the answer cites no SOP at all, the model is asked once more to cite its sources (`CITATION_REMINDER`). If the second answer still cites nothing, the user gets the "no procedure" message, because nobody could check where the answer came from. Escalations skip the retry, so a person is reached without waiting.
 8. **Logging.** The message, intent, latency, and cited sources go to the database.
 
 ## Indexing
@@ -26,6 +28,8 @@
 ## "No answer" rule
 
 If the best vector score is below `MIN_VECTOR_SCORE`, the system skips the LLM and replies that no procedure was found. The LLM then has nothing to invent from. Tune the value with `python -m app.rag.evaluate_retrieval`.
+
+Above the threshold, the same message is used when the model says it has no procedure, or gives an answer that cites no SOP even after one retry (see step 7).
 
 ## Endpoints
 

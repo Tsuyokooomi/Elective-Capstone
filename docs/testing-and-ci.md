@@ -16,6 +16,8 @@ All tests run without Ollama: they use a fake embedding model and a fake LLM, so
 | `tests/test_guardrails.py` | Injection filter (26 attacks, 23 normal messages), PII types, output filter, rate limits |
 | `tests/test_memory.py` | Follow-up detection, history limits, attacks kept out of history, both escalation rules |
 | `tests/test_eval_tools.py` | The scoring code, the eval files, the red-team set |
+| `tests/test_tuning.py` | The fixes made after the first full evaluation run |
+| `tests/test_citations.py` | The fixes made after the 2026-11-24 run: SOP cross-references, the model's "no procedure" reply, the citation retry, intent wording |
 | `frontend/tests/test_app.py` | The Streamlit screens for each role, login, reset page, errors (backend replaced by a fake) |
 
 Run them inside Docker:
@@ -27,7 +29,7 @@ docker compose exec api python -m pytest tests/test_auth.py -q    # one file
 docker compose exec api python -m pytest tests -q -k lockout      # tests with a word in the name
 ```
 
-About 215 API tests and 16 frontend tests at the end of Phase 5 (a parametrized test counts once per case).
+About 238 API tests and 16 frontend tests at the end of Phase 5 (a parametrized test counts once per case).
 
 ## CI pipeline (`.github/workflows/ci.yml`)
 

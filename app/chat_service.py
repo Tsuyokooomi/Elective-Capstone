@@ -99,18 +99,37 @@ def _agent_handling_response(conversation) -> dict:
     }
 
 
-def _rag(question, retriever, answer_llm, out: Outcome, query=None, history=None):
+def _filtered(answer: Answer, out: Outcome) -> tuple[Answer, bool]:
+    """Run the output filter on an LLM answer. Returns (answer, replaced): replaced is True when the
+    whole text was swapped for a fixed message (a prompt leak or a request for a secret)."""
+    if not answer.used_llm:   # only LLM text is filtered: our own fixed messages are trusted
+        return answer, False
+    safe_text, flags = filter_output(answer.text)
+    if not flags:
+        return answer, False
+    out.guardrail_flags = list(dict.fromkeys(out.guardrail_flags + flags))
+    answer.text = safe_text
+    replaced = "prompt_leak" in flags or "asks_for_secret" in flags
+    if replaced:   # the text was replaced, so nothing is cited
+        answer.cited_sop_ids, answer.grounded = [], False
+    return answer, replaced
+
+
+def _rag(question, retriever, answer_llm, out: Outcome, query=None, history=None, require_citation=True):
     """Search, answer, then check the answer. query is the text to search with (it can include the
-    earlier question for a follow-up). history is the earlier turns given to the model."""
+    earlier question for a follow-up). history is the earlier turns given to the model.
+
+    Every answer must cite a retrieved SOP. If the model cites none, it is asked once to fix that;
+    if it still cites none, the user gets the "no procedure" reply instead of an answer nobody can check.
+    require_citation=False skips that (escalations: a person takes over anyway, so no extra wait)."""
     search = retriever.search(query or question)
-    answer = generate_answer(question, search, answer_llm, history=history)
-    if answer.used_llm:   # only LLM text is filtered: our own fixed messages are trusted
-        safe_text, flags = filter_output(answer.text)
-        if flags:
-            out.guardrail_flags = flags
-            answer.text = safe_text
-            if "prompt_leak" in flags or "asks_for_secret" in flags:   # the text was replaced, so nothing is cited
-                answer.cited_sop_ids, answer.grounded = [], False
+    answer, replaced = _filtered(generate_answer(question, search, answer_llm, history=history), out)
+    if (require_citation and answer.used_llm and not replaced and not answer.grounded
+            and answer.text != NO_ANSWER_MESSAGE):
+        logger.info("Answer cited no SOP, asking the model once more")
+        retry, replaced = _filtered(
+            generate_answer(question, search, answer_llm, history=history, previous=answer.text), out)
+        answer = retry if (retry.grounded or replaced) else Answer(text=NO_ANSWER_MESSAGE, used_llm=True)
     return search, answer
 
 
@@ -259,8 +278,9 @@ def _handle_new(session, clean, user, conversation, retriever, answer_llm, class
         priority = PRIORITY_BY_INTENT.get(intent, "P3")
         prefix = ""
         if spec["sops"]:
-            out.search, out.answer = _rag(clean, retriever, answer_llm, out)
-            prefix = out.answer.text
+            out.search, out.answer = _rag(clean, retriever, answer_llm, out, require_citation=False)
+            if out.answer.text != NO_ANSWER_MESSAGE:   # its "ticket or person?" offer makes no sense here
+                prefix = out.answer.text
         _hand_off(session, user, conversation, clean, priority, intent, source, out, prefix=prefix)
     elif out.route == "action" and _propose_action(session, intent, clean, user, tool_llm, out):
         pass

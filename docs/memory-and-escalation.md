@@ -22,7 +22,7 @@ Two triggers from the taxonomy, now implemented. Both create a P3 ticket, hand t
 | Rule | When it fires |
 |---|---|
 | `unresolved_after_answers` | The assistant has already given `MAX_UNRESOLVED_ANSWERS` (default 2) answers that cited an SOP in this chat, and the user sends a short message (12 words or fewer) saying it still fails: "still", "doesn't work", "not working", "hindi pa rin"… No LLM runs for this decision |
-| `no_match_twice` | Retrieval finds no good match, and the previous reply was also the "I don't have a procedure" message |
+| `no_match_twice` | The reply is the "I don't have a procedure" message (no good match, the model found no procedure in the SOPs, or the answer cited no SOP), and the previous reply was that message too |
 
 A match in between resets the "twice in a row" count. A long message is treated as a new problem, not as a complaint. If a ticket is already open for the chat, the open ticket is reused.
 

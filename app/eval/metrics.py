@@ -162,6 +162,7 @@ def summarize_items(rows: list[dict]) -> dict:
             failures.append({"id": row["id"], "question": row["question"], "failed": failed or ["error"],
                              "expected_route": row.get("expected_route"), "route": row.get("route"),
                              "expected_intent": row.get("expected_intent"), "intent": row.get("intent"),
+                             "cited": row.get("sources"), "invalid_citations": row.get("invalid_citations"),
                              "error": row.get("error")})
 
     metrics = {name: {"label": LABELS.get(name, name), "num": n, "den": d, "rate": rate(n, d)}
@@ -241,7 +242,7 @@ def summarize_scenarios(results: list[dict]) -> dict:
     turns = [t for r in results if not r.get("error") for t in r["turn_problems"]]
     routine = [r for r in results if r["kind"] == "routine"]
     escalation = [r for r in results if r["kind"] == "escalation"]
-    action = [r for r in results if r["kind"] == "action"]
+    action = [r for r in results if r["kind"] == "action" and r["expected_outcome"] == "action_done"]   # declined actions are not "failed" actions
     deflected = [r for r in routine if r.get("actual_outcome") in ("resolved", "answered")]
     handed_off = [r for r in escalation if r.get("actual_outcome") == "escalated"]
     done = [r for r in action if r.get("actual_outcome") == "action_done"]

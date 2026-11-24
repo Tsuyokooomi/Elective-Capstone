@@ -196,6 +196,16 @@ def test_summarize_scenarios_deflection_and_handoff():
     assert [f["id"] for f in summary["failures"]] == ["B", "D", "E"]
 
 
+def test_a_declined_action_is_not_counted_as_a_failed_action():
+    done = {"id": "A", "title": "A", "kind": "action", "expected_outcome": "action_done", "actual_outcome": "action_done",
+            "turn_problems": [[]], "latencies": [1]}
+    declined = {"id": "B", "title": "B", "kind": "action", "expected_outcome": "cancelled", "actual_outcome": "cancelled",
+                "turn_problems": [[]], "latencies": [1]}
+    summary = summarize_scenarios([done, declined])
+    assert summary["actions_completed"] == {"num": 1, "den": 1, "rate": 1.0}
+    assert summary["passed"] == 2
+
+
 # ---------------------------------------------------------------- the eval files
 
 def test_eval_set_is_big_and_varied_enough():

@@ -260,10 +260,12 @@ def test_human_request_hands_off_without_rag(env):
     assert result["escalated"] and not answer_llm.calls
 
 
-def test_out_of_scope_is_declined_only_when_classifier_is_confident(env):
+def test_out_of_scope_is_declined_only_when_classifier_is_confident(env, monkeypatch):
+    monkeypatch.setattr(settings, "min_vector_score", 2.0)      # nothing in the knowledge base matches this question
     sure, answer_llm, _ = run_chat(env, "What is the capital of France?",
                                    '{"intent": "out_of_scope", "confidence": 0.95, "urgent": false}')
     assert sure["route"] == "decline" and not answer_llm.calls
+    monkeypatch.setattr(settings, "min_vector_score", 0.0)
     unsure, _, _ = run_chat(env, "VPN says authentication failed",
                             '{"intent": "out_of_scope", "confidence": 0.2, "urgent": false}',
                             answer_reply="Check your password [KB-008].")

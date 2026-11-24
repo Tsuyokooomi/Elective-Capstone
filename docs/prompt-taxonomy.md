@@ -45,7 +45,7 @@ Each message passes through these steps in order.
    - **answer:** retrieve SOP chunks, then answer with citations.
    - **action:** run the tool (with confirmation where needed).
    - **escalate:** create a ticket and hand off.
-   - **decline:** send the out-of-scope message.
+   - **decline:** send the out-of-scope message. Before declining, the code checks the knowledge base: if an SOP matches as strongly as the answer rule requires (`MIN_VECTOR_SCORE`), the question is in scope after all and is answered from the SOP. The classifier is told to use `out_of_scope` only for topics unrelated to company IT, and to pick the closest IT intent when unsure.
 5. **Logging.** Save the message, intent, latency, sources, and any tool call to the database.
 
 ## 4. Escalation triggers

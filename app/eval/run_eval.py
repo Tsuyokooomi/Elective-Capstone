@@ -109,7 +109,8 @@ def run_single(env, items: list[dict], use_judge: bool) -> list[dict]:
             result = send(env, item["question"])
             row["latency_ms"] = round((time.perf_counter() - started) * 1000)
             row.update(route=result["route"], intent=result["intent"], grounded=result["grounded"],
-                       sources=[s["sop_id"] for s in result["sources"]], reply=result["reply"],
+                       sources=[s["sop_id"] for s in result["sources"]], invalid_citations=result["invalid_citations"],
+                       retrieved=retrieved, reply=result["reply"],
                        pii_redacted=result["pii_redacted"], guardrail_flags=result["guardrail_flags"])
 
             checks = check_item(item, result, retrieved)
@@ -200,7 +201,7 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
-def main(argv=None) -> None:
+def main(argv=None) -> int:
     args = parse_args(argv)
     started = datetime.now()
     items = json.loads(Path("tests/eval_set.json").read_text(encoding="utf-8"))
@@ -264,7 +265,8 @@ def main(argv=None) -> None:
         print(f"Attacks blocked:   {pct(guardrail_summary['attack_block_rate']['rate'])}, "
               f"false blocks {guardrail_summary['false_block_rate']['num']}")
     print(f"Report: {out / 'latest.md'}")
+    return 1 if guardrail_summary and guardrail_summary["failures"] else 0   # CI fails on a guardrail regression
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

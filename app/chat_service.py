@@ -114,6 +114,12 @@ def _rag(question, retriever, answer_llm, out: Outcome, query=None, history=None
     return search, answer
 
 
+def _sop_matches(retriever, query: str) -> bool:
+    """True if the knowledge base has a good match. Same bar as the "no procedure found" rule."""
+    search = retriever.search(query)
+    return bool(search.chunks) and search.best_vector_score >= settings.min_vector_score
+
+
 def _count_grounded(session, prior: list[Message]) -> int:
     """How many earlier assistant answers in this chat cited at least one SOP."""
     ids = [m.id for m in prior if m.sender == "assistant"]
@@ -234,6 +240,13 @@ def _handle_new(session, clean, user, conversation, retriever, answer_llm, class
     spec = INTENTS.get(intent)
     if spec:
         out.route, out.tool = spec["route"], spec["tool"]
+
+    if out.route == "decline" and _sop_matches(retriever, contextual or clean):
+        # The classifier said "not IT support", but an SOP matches strongly. If we have a procedure for
+        # it, it is in scope: trust the knowledge base and answer from it.
+        logger.info("Out-of-scope label overridden by an SOP match")
+        intent = out.intent = None
+        out.route, out.tool = "answer", None
 
     if out.route == "decline":
         out.reply = OUT_OF_SCOPE_MESSAGE

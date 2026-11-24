@@ -40,7 +40,7 @@ The run uses a **scratch database**. It never changes your real conversations, t
 | **Latency** | Milliseconds for the whole pipeline per message: mean, p50, p95, max, split by route. Blocked attacks use no LLM and take a few milliseconds |
 | **Ticket deflection rate** | Over the "routine" scenarios (first-level problems the assistant should solve alone): the share that ended without a ticket or a human, either resolved after the user said thanks, or answered with a citation |
 | **Correct hand-off** | Over the "escalation" scenarios: the share that reached a person |
-| **Actions completed** | Over the "action" scenarios: password resets and tickets that were completed after YES |
+| **Actions completed** | Over the scenarios where an action should be done: password resets and tickets that were completed after YES. A scenario where the user declines is not counted here |
 
 A question passes only if every applicable deterministic check passes.
 

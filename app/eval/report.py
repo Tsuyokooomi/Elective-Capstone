@@ -45,12 +45,15 @@ def render_markdown(meta: dict, items: dict | None, scenarios: dict | None, guar
         for route, s in items["latency_by_route"].items():
             out.append(_latency_row(f"route: {route}", s))
         if items["failures"]:
-            out += ["", "### Failed questions", "", "| ID | Question | Failed checks | Route (got / expected) | Intent (got / expected) |",
-                    "|---|---|---|---|---|"]
+            out += ["", "### Failed questions", "", "| ID | Question | Failed checks | Route (got / expected) | Intent (got / expected) | Cited (invalid) |",
+                    "|---|---|---|---|---|---|"]
             for f in items["failures"]:
                 question = f["question"].replace("|", "\\|")[:70]
+                cited = ", ".join(f.get("cited") or []) or "none"
+                if f.get("invalid_citations"):
+                    cited += f" ({', '.join(f['invalid_citations'])})"
                 out.append(f"| {f['id']} | {question} | {', '.join(f['failed'])} | {f['route']} / {f['expected_route']} | "
-                           f"{f['intent']} / {f['expected_intent']} |")
+                           f"{f['intent']} / {f['expected_intent']} | {cited} |")
         out.append("")
 
     if scenarios:
@@ -63,7 +66,7 @@ def render_markdown(meta: dict, items: dict | None, scenarios: dict | None, guar
                 f"| Correct hand-off | {frac(scenarios['correct_handoff'])}{_flag(scenarios['correct_handoff']['rate'])} | "
                 "Security, MFA, human-request and repeated-failure cases that reached a person |",
                 f"| Actions completed | {frac(scenarios['actions_completed'])}{_flag(scenarios['actions_completed']['rate'])} | "
-                "Password resets and tickets done after the user confirmed |",
+                "Password resets and tickets done after the user confirmed (declined actions are not counted) |",
                 "", f"Latency per message: p50 {scenarios['latency']['p50']} ms, p95 {scenarios['latency']['p95']} ms.", ""]
         if scenarios["failures"]:
             out += ["### Failed scenarios", ""]

@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  backend:
+    name: API tests and guardrail check
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"          # same as the Docker image
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # The tests use a fake embedding model and a fake LLM, so no Ollama is needed here.
+      - name: API tests
+        run: python -m pytest tests -q
+        env:
+          SECRET_KEY: ci-only-key-for-the-test-run-1234567890
+
+      # Red-team set: attacks, normal messages, PII and output filter. Fails the build on a regression.
+      - name: Guardrail check
+        run: python -m app.eval.run_eval --suite guardrails
+
+      - name: Keep the guardrail report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: guardrail-report
+          path: data/eval/latest.md
+          if-no-files-found: ignore
+
+  frontend:
+    name: Streamlit screen tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: frontend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Frontend tests
+        run: python -m pytest tests -q

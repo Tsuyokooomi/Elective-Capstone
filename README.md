@@ -18,6 +18,7 @@ Stack: FastAPI, ChromaDB, LlamaIndex, Ollama (OpenAI optional), SQLite, Streamli
 docker compose exec api python -m pytest tests -q
 docker compose exec frontend python -m pytest tests -q
 ```
+The same tests run on every push through GitHub Actions (`.github/workflows/ci.yml`). See `docs/testing-and-ci.md`.
 
 ## Evaluate
 ```
@@ -37,3 +38,4 @@ Reports are written to `data/eval/`. See `docs/evaluation.md`.
 - `docs/guardrails.md`: rate limits, PII redaction, injection check, output filter
 - `docs/memory-and-escalation.md`: conversation memory and the two escalation rules
 - `docs/evaluation.md`: how the assistant is scored, and how to run the evaluation and the load test
+- `docs/testing-and-ci.md`: the test suites and the CI pipeline

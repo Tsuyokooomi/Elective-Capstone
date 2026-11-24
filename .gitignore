@@ -5,3 +5,13 @@ data/*
 !data/.gitkeep
 .venv/
 .pytest_cache/
+
+# Editor and system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Phase delivery bundles
+*-changes.zip
+phase*.zip

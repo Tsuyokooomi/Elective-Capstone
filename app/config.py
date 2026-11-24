@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     chunk_overlap: int = 50
     top_k: int = 4                      # chunks sent to the LLM
     candidate_k: int = 8                # candidates from each search before fusion
-    min_vector_score: float = 0.35      # below this, answer "no procedure found"
+    min_vector_score: float = 0.62      # below this, answer "no procedure found" (tuned with evaluate_retrieval)
     classifier_min_confidence: float = 0.6
 
     # Automation (Phase 3)

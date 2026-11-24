@@ -55,5 +55,5 @@ docker compose exec api python -m app.eval.run_eval          # score the whole p
 | CHUNK_OVERLAP | 50 | Tokens shared by neighbouring chunks |
 | TOP_K | 4 | Chunks sent to the LLM |
 | CANDIDATE_K | 8 | Candidates taken from each search before fusion |
-| MIN_VECTOR_SCORE | 0.35 | Below this, answer "no procedure found" |
+| MIN_VECTOR_SCORE | 0.62 | Below this, answer "no procedure found". Tuned on the 35 answerable and no-answer questions of the first eval set (answerable scores started at 0.67, no-answer scores went up to 0.74, so no value separates them perfectly). Re-check it with `evaluate_retrieval` and `run_eval` after changing the SOPs or the embedding model |
 | CLASSIFIER_MIN_CONFIDENCE | 0.6 | Below this, an "out of scope" result is ignored |

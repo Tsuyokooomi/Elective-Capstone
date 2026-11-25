@@ -14,8 +14,9 @@ class ApiError(Exception):
 
 def request(method: str, path: str, token: str | None = None, **kwargs):
     headers = {"Authorization": f"Bearer {token}"} if token else {}
+    kwargs.setdefault("timeout", 180)
     try:
-        response = requests.request(method, API_URL + path, headers=headers, timeout=180, **kwargs)
+        response = requests.request(method, API_URL + path, headers=headers, **kwargs)
     except requests.RequestException:
         raise ApiError(f"Cannot reach the API at {API_URL}. Is the api container running?")
     if response.status_code >= 400:
@@ -85,3 +86,8 @@ def kb_doc(token, sop_id):
 
 def kb_reindex(token, force=False):
     return request("POST", "/kb/reindex", token, params={"force": force})
+
+
+def health():
+    """Used for the online indicator in the sidebar."""
+    return request("GET", "/health", None, timeout=3)

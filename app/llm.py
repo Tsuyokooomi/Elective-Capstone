@@ -14,6 +14,22 @@ def get_llm(temperature: float = 0.1, json_mode: bool = False):
             additional_kwargs=extra,
         )
 
+    if settings.provider == "lmstudio":
+        from llama_index.llms.openai_like import OpenAILike
+
+        # LM Studio rejects response_format "json_object", so json_mode is not passed on.
+        # The classifier parses the first {...} in the reply, which works without it.
+        return OpenAILike(
+            model=settings.lmstudio_model,
+            api_base=settings.lmstudio_base_url,
+            api_key="lm-studio",   # LM Studio ignores the key, but the client needs one
+            temperature=temperature,
+            timeout=180.0,
+            context_window=settings.lmstudio_context_window,
+            is_chat_model=True,
+            is_function_calling_model=True,
+        )
+
     from llama_index.llms.ollama import Ollama
 
     return Ollama(
@@ -34,6 +50,15 @@ def get_embed_model():
 
         return OpenAIEmbedding(
             model=settings.openai_embed_model, api_key=settings.openai_api_key
+        )
+
+    if settings.provider == "lmstudio":
+        from llama_index.embeddings.openai_like import OpenAILikeEmbedding
+
+        return OpenAILikeEmbedding(
+            model_name=settings.lmstudio_embed_model,
+            api_base=settings.lmstudio_base_url,
+            api_key="lm-studio",
         )
 
     from llama_index.embeddings.ollama import OllamaEmbedding

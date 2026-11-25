@@ -216,8 +216,8 @@ def main(argv=None) -> int:
     use_model = args.suite != "guardrails"
     meta = {
         "started": started.strftime("%Y-%m-%d %H:%M"),
-        "model": settings.ollama_model if settings.provider == "ollama" else settings.openai_model,
-        "embed_model": settings.ollama_embed_model if settings.provider == "ollama" else settings.openai_embed_model,
+        "model": getattr(settings, f"{settings.provider}_model"),
+        "embed_model": getattr(settings, f"{settings.provider}_embed_model"),
         "min_vector_score": settings.min_vector_score, "top_k": settings.top_k, "judge": args.judge,
         "eval_items": len(items) if args.suite in ("all", "single") else None,
         "scenario_count": len(scenarios) if args.suite in ("all", "conversations") else None,

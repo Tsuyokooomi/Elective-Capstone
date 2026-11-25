@@ -13,6 +13,12 @@ Stack: FastAPI, ChromaDB, LlamaIndex, Ollama (OpenAI optional), SQLite, Streamli
    - `docker compose exec api python -m app.rag.indexer` (index the SOPs)
 5. Open the chat interface at http://localhost:8501 and the API docs at http://localhost:8080/docs.
 
+### Using LM Studio instead of Ollama
+1. In LM Studio, download a chat model (for example Qwen3 8B) and an embedding model (for example nomic-embed-text v1.5).
+2. Open the Developer tab, load both models, and start the server (port 1234).
+3. In `.env`, set `PROVIDER=lmstudio` and set `LMSTUDIO_MODEL` and `LMSTUDIO_EMBED_MODEL` to the model IDs LM Studio shows.
+4. Follow steps 3 to 5 above. Re-run the indexer whenever you change the embedding model.
+
 ## Test
 ```
 docker compose exec api python -m pytest tests -q

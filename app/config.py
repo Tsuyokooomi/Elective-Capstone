@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    provider: str = "ollama"  # "ollama" or "openai"
+    provider: str = "ollama"  # "ollama", "openai" or "lmstudio"
 
     ollama_base_url: str = "http://host.docker.internal:11434"
     ollama_model: str = "qwen3.5:4b"
@@ -13,6 +13,13 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     openai_embed_model: str = "text-embedding-3-small"
+
+    # LM Studio: its local server speaks the OpenAI API. Use the model IDs LM Studio shows
+    # (Developer tab, or GET /v1/models). Inside Docker, the host is host.docker.internal.
+    lmstudio_base_url: str = "http://host.docker.internal:1234/v1"
+    lmstudio_model: str = "qwen3-8b"
+    lmstudio_embed_model: str = "text-embedding-nomic-embed-text-v1.5"
+    lmstudio_context_window: int = 8192
 
     # ChromaDB: "http" uses the chroma container, "local" stores files inside the api container
     chroma_mode: str = "http"

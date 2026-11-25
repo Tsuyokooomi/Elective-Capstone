@@ -54,6 +54,8 @@ class FakeBackend:
             return [{"to": "alex@capstonecompany.example", "subject": "Reset your CapstoneCompany password",
                      "link": "http://localhost:8501/?reset_token=good-token", "body": "x",
                      "sent_at": "2026-11-22T10:00:00+00:00"}]
+        if path == "/health":
+            return {"status": "ok"}
         if path == "/me":
             name, role = USERS[employee_id]
             return {"employee_id": employee_id, "name": name, "role": role}
@@ -236,7 +238,8 @@ def test_login_screen_comes_first_and_a_wrong_password_is_rejected(backend):
 
 def test_the_token_not_the_employee_id_is_sent_to_the_api(backend):
     at = start("E-2001")
-    assert at.sidebar.caption[0].value == "Ana Agent · agent"
+    profile = [e.proto.body for e in at.sidebar.get("html") if 'class="profile"' in e.proto.body]
+    assert profile and "Ana Agent" in profile[0] and ">agent<" in profile[0]
     me_calls = [c for c in backend.calls if c[1] == "/me"]
     assert me_calls and me_calls[0][2] == "E-2001"        # fake token; the real one is a signed JWT
     login_calls = [c for c in backend.calls if c[1] == "/auth/login"]

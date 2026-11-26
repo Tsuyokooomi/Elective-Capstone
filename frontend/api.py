@@ -95,6 +95,27 @@ def kb_doc(token, sop_id):
     return request("GET", f"/kb/{sop_id}", token)
 
 
+def kb_create(token, title, category, body, applies_to="", escalation=""):
+    """Admin only: add a new SOP. The reply says whether it was indexed."""
+    return request("POST", "/kb", token, json={
+        "title": title, "category": category, "body": body, "applies_to": applies_to, "escalation": escalation})
+
+
+def kb_update(token, sop_id, text):
+    """Admin only: replace the full text of an SOP."""
+    return request("PUT", f"/kb/{sop_id}", token, json={"text": text})
+
+
+def kb_references(token, sop_id):
+    """Admin only: which other SOPs mention this one."""
+    return request("GET", f"/kb/{sop_id}/references", token)
+
+
+def kb_delete(token, sop_id):
+    """Admin only: archive an SOP and remove it from search."""
+    return request("DELETE", f"/kb/{sop_id}", token)
+
+
 def kb_reindex(token, force=False):
     return request("POST", "/kb/reindex", token, params={"force": force})
 

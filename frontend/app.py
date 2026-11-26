@@ -538,6 +538,100 @@ def kb_cards(docs: list[dict]) -> str:
     return f'<div class="kb-grid">{"".join(cells)}</div>'
 
 
+NEW_CATEGORY = "➕ New category…"
+SOP_TEMPLATE = "Steps:\n1. \n2. \n\nNotes:\n- "
+
+
+def show_sop_result(result: dict, verb: str):
+    """Tell the admin what happened, including the case where the file was saved but not indexed."""
+    if result.get("indexed"):
+        st.success(f"{verb} {result['sop_id']} · {result['title']}. It is indexed, so the assistant can use it now.", icon="✅")
+    else:
+        st.warning(f"{verb} {result['sop_id']} · {result['title']}. "
+                   f"{result.get('warning', 'It is not indexed yet. Click Re-index.')}", icon="⚠️")
+
+
+def add_sop_form(token: str, categories: list[str]):
+    n = st.session_state.get("sop_form_n", 0)   # a new number gives empty fields after a successful save
+    notice = st.session_state.pop("sop_added", None)
+    if notice:
+        show_sop_result(notice, "Added")
+    with st.expander("➕ Add a new SOP", expanded=False):
+        title = st.text_input("Title", key=f"sop_title_{n}", max_chars=150, placeholder="Zebra Badge Printer Offline")
+        pick = st.selectbox("Category", categories + [NEW_CATEGORY], key=f"sop_cat_{n}")
+        category = pick
+        if pick == NEW_CATEGORY:
+            category = st.text_input("New category name", key=f"sop_newcat_{n}", max_chars=100)
+        a, b = st.columns(2)
+        applies_to = a.text_input("Applies to (optional)", key=f"sop_applies_{n}", max_chars=200,
+                                  placeholder="All CapstoneCompany employees")
+        escalation = b.text_input("Escalation (optional)", key=f"sop_escalate_{n}", max_chars=200,
+                                  placeholder="Only if the steps below fail.")
+        body = st.text_area("Content (Markdown)", key=f"sop_body_{n}", height=240, value=SOP_TEMPLATE,
+                            help="Write the steps as a numbered list. Do not put passwords, codes or card numbers in an SOP.")
+        st.caption("The SOP gets the next free ID and is saved in the kb folder, then indexed right away.")
+        if st.button("Save SOP", key=f"sop_save_{n}", type="primary"):
+            if not title.strip() or not category.strip() or not body.strip() or body.strip() == SOP_TEMPLATE.strip():
+                st.error("Enter a title, a category and the content.")
+                return
+            try:
+                with st.spinner("Saving and indexing..."):
+                    created = api.kb_create(token, title.strip(), category.strip(), body, applies_to.strip(),
+                                            escalation.strip())
+            except api.ApiError as exc:
+                return show_error(exc)
+            st.session_state["sop_added"] = created
+            st.session_state["sop_form_n"] = n + 1
+            st.rerun()
+
+
+def edit_sop_box(token: str, sop_id: str, text: str):
+    notice = st.session_state.pop("sop_edited", None)
+    if notice:
+        show_sop_result(notice, "Saved")
+    with st.expander(f"✏️ Edit {sop_id}", expanded=False):
+        st.caption(f"Keep the first line (the title, starting with #) and the line 'SOP ID: {sop_id}'. "
+                   "Saving re-indexes this SOP.")
+        edited = st.text_area("SOP text", value=text, height=360, key=f"sop_edit_{sop_id}")
+        if st.button("Save changes", key=f"sop_edit_save_{sop_id}", type="primary"):
+            if edited.strip() == text.strip():
+                st.info("Nothing changed.")
+                return
+            try:
+                with st.spinner("Saving and indexing..."):
+                    saved = api.kb_update(token, sop_id, edited)
+            except api.ApiError as exc:
+                return show_error(exc)
+            st.session_state["sop_edited"] = saved
+            st.session_state.pop(f"sop_edit_{sop_id}", None)   # show the saved text next time
+            st.rerun()
+
+
+def delete_sop_box(token: str, sop_id: str):
+    with st.expander(f"🗑️ Delete {sop_id}", expanded=False):
+        try:
+            refs = api.kb_references(token, sop_id)["referenced_by"]
+        except api.ApiError as exc:
+            return show_error(exc)
+        st.caption("The file is moved to kb/.deleted/, not erased, so it can be restored. "
+                   "Past chats that cited it keep their history.")
+        if refs:
+            st.warning("These SOPs still mention " + sop_id + ": "
+                       + ", ".join(r["sop_id"] for r in refs) + ". Edit them after deleting.", icon="⚠️")
+        st.warning("Test questions in your evaluation set that expect this SOP will fail after it is gone.", icon="🧪")
+        sure = st.checkbox(f"I understand that the assistant will stop using {sop_id}", key=f"sop_del_ok_{sop_id}")
+        if st.button("Delete SOP", key=f"sop_del_{sop_id}", disabled=not sure, type="primary"):
+            try:
+                with st.spinner("Deleting..."):
+                    done = api.kb_delete(token, sop_id)
+            except api.ApiError as exc:
+                return show_error(exc)
+            st.session_state["sop_deleted"] = done
+            st.session_state.pop("sop_pick", None)       # the preview list no longer has this SOP
+            st.session_state.pop(f"sop_del_ok_{sop_id}", None)
+            st.rerun()
+
+
 def kb_view(user: dict):
     token = user["token"]
     st.title("Knowledge base")
@@ -547,7 +641,14 @@ def kb_view(user: dict):
         return show_error(exc)
 
     pending = sum(1 for d in docs if not d["indexed_at"])
+    gone = st.session_state.pop("sop_deleted", None)
+    if gone:
+        st.success(f"Deleted {gone['sop_id']} · {gone['title']}. A copy is kept as {gone['archived_as']}.", icon="🗑️")
+        if gone.get("warning"):
+            st.warning(gone["warning"], icon="⚠️")
     st.caption(f"{len(docs)} SOPs, {pending} not indexed yet.")
+    if user["role"] == "admin":
+        add_sop_form(token, sorted({d.get("category") or "Other" for d in docs}))
 
     search_col, cat_col = st.columns([2, 1])
     query = search_col.text_input("Search SOPs", key="kb_search", placeholder="🔎  Search by ID or title…")
@@ -577,11 +678,16 @@ def kb_view(user: dict):
 
     pool = shown or docs
     pick = st.selectbox("Preview an SOP", [f"{d['sop_id']} · {d['title']}" for d in pool], key="sop_pick")
+    sop_id = pick.split(" · ")[0]
     try:
+        doc = api.kb_doc(token, sop_id)
         with st.container(border=True):
-            st.markdown(api.kb_doc(token, pick.split(" · ")[0])["text"])
+            st.markdown(doc["text"])
     except api.ApiError as exc:
-        show_error(exc)
+        return show_error(exc)
+    if user["role"] == "admin":
+        edit_sop_box(token, sop_id, doc["text"])
+        delete_sop_box(token, sop_id)
 
 
 def accounts_view(user: dict):

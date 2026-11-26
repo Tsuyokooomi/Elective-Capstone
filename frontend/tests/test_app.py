@@ -96,6 +96,22 @@ class FakeBackend:
         if (method, path) == ("GET", "/kb"):
             return [{"sop_id": "KB-001", "title": "Password Reset", "category": "Accounts", "indexed_at": "2026-11-20"},
                     {"sop_id": "KB-002", "title": "Account Locked Out", "category": "Accounts", "indexed_at": None}]
+        if (method, path) == ("POST", "/kb"):
+            if kw["json"]["title"] == "Rejected":
+                raise api.ApiError("This text looks like it contains a password.", 400)
+            return {"sop_id": "KB-021", "title": kw["json"]["title"], "category": kw["json"]["category"],
+                    "filename": "KB-021-x.md", "indexed": True, "index": {"indexed": 1}}
+        if (method, path) == ("PUT", "/kb/KB-001"):
+            if "FAIL" in kw["json"]["text"]:
+                return {"sop_id": "KB-001", "title": "Password Reset", "category": "Accounts", "filename": "KB-001.md",
+                        "indexed": False, "index": None, "warning": "Saved, but indexing failed."}
+            return {"sop_id": "KB-001", "title": "Password Reset", "category": "Accounts", "filename": "KB-001.md",
+                    "indexed": True, "index": {"indexed": 1}}
+        if (method, path) == ("GET", "/kb/KB-001/references"):
+            return {"sop_id": "KB-001", "referenced_by": [{"sop_id": "KB-002", "title": "Account Locked Out"}]}
+        if (method, path) == ("DELETE", "/kb/KB-001"):
+            return {"sop_id": "KB-001", "title": "Password Reset", "archived_as": ".deleted/KB-001-x.md",
+                    "referenced_by": [], "search_updated": True}
         if path.startswith("/kb/KB-"):
             return {"sop_id": path[-6:], "title": "t", "category": "c", "text": "# Password Reset\nSteps: 1. Open the portal"}
         if (method, path) == ("POST", "/kb/reindex"):
@@ -274,6 +290,64 @@ def test_account_management_rejects_mismatched_passwords_and_duplicates(backend)
 def test_only_admins_see_account_management(backend):
     assert "Account Management" in start("E-3001").sidebar.radio(key="view").options
     assert "Account Management" not in start("E-2001").sidebar.radio(key="view").options
+
+
+def test_admin_adds_an_sop(backend):
+    at = start("E-3001", view="Knowledge base")
+    at.text_input(key="sop_title_0").set_value("Zebra Badge Printer Offline")
+    at.text_area(key="sop_body_0").set_value("Steps:\n1. Turn it off and on.\n2. Check the cable.")
+    at.button(key="sop_save_0").click().run()
+    posts = [c for c in backend.calls if c[:2] == ("POST", "/kb")]
+    assert len(posts) == 1
+    sent = posts[0][3]["json"]
+    assert sent["title"] == "Zebra Badge Printer Offline" and sent["category"] == "Accounts" and "Steps:" in sent["body"]
+    assert any("KB-021" in s.value and "indexed" in s.value for s in at.success)
+    assert at.text_input(key="sop_title_1").value == ""          # the form starts empty again
+
+
+def test_adding_an_sop_needs_a_title_and_real_content_and_shows_backend_errors(backend):
+    at = start("E-3001", view="Knowledge base")
+    at.button(key="sop_save_0").click().run()                     # empty title, template body
+    assert any("Enter a title" in e.value for e in at.error)
+    assert not [c for c in backend.calls if c[:2] == ("POST", "/kb")]
+
+    at.text_input(key="sop_title_0").set_value("Rejected")
+    at.text_area(key="sop_body_0").set_value("Steps:\n1. The password is Hunter2x9")
+    at.button(key="sop_save_0").click().run()
+    assert any("password" in e.value for e in at.error)
+
+
+def test_admin_edits_an_sop(backend):
+    at = start("E-3001", view="Knowledge base")
+    original = at.text_area(key="sop_edit_KB-001").value
+    assert "Password Reset" in original
+    at.button(key="sop_edit_save_KB-001").click().run()
+    assert any("Nothing changed" in i.value for i in at.info)    # saving an untouched text sends nothing
+    assert not [c for c in backend.calls if c[:2] == ("PUT", "/kb/KB-001")]
+
+    at.text_area(key="sop_edit_KB-001").set_value(original + "\n- A new tip.")
+    at.button(key="sop_edit_save_KB-001").click().run()
+    puts = [c for c in backend.calls if c[:2] == ("PUT", "/kb/KB-001")]
+    assert len(puts) == 1 and "A new tip." in puts[0][3]["json"]["text"]
+    assert any("KB-001" in s.value for s in at.success)
+
+
+def test_a_saved_but_not_indexed_sop_shows_a_warning(backend):
+    at = start("E-3001", view="Knowledge base")
+    at.text_area(key="sop_edit_KB-001").set_value("# Password Reset\nSOP ID: KB-001\nCategory: Accounts\nFAIL")
+    at.button(key="sop_edit_save_KB-001").click().run()
+    assert any("indexing failed" in w.value for w in at.warning)
+
+
+def test_admin_deletes_an_sop_only_after_ticking_the_box(backend):
+    at = start("E-3001", view="Knowledge base")
+    assert at.button(key="sop_del_KB-001").disabled                       # locked until the admin confirms
+    assert any("KB-002" in w.value for w in at.warning)                   # shows which SOPs still mention it
+    at.checkbox(key="sop_del_ok_KB-001").check().run()
+    assert not at.button(key="sop_del_KB-001").disabled
+    at.button(key="sop_del_KB-001").click().run()
+    assert ("DELETE", "/kb/KB-001", "E-3001", {}) in backend.calls
+    assert any("Deleted KB-001" in s.value and ".deleted/KB-001-x.md" in s.value for s in at.success)
 
 
 def test_signing_out_and_in_as_someone_else_starts_a_fresh_chat(backend):

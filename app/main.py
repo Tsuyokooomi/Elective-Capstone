@@ -15,7 +15,7 @@ from app.deps import (  # noqa: F401  (tests override these by name)
     require_roles,
 )
 from app.rag.retriever import HybridRetriever
-from app.routers import accounts
+from app.routers import accounts, kb_admin
 from app.routers import auth as auth_router
 from app.routers import ops
 from app.schemas import ChatBody, ChatRequest, ChatResponse
@@ -122,4 +122,5 @@ def mock_outbox(user: User = Depends(require_roles("admin"))):
 # Registered last, so fixed paths such as /kb/search win over /kb/{sop_id}
 app.include_router(auth_router.router)
 app.include_router(accounts.router)
+app.include_router(kb_admin.router)
 app.include_router(ops.router)

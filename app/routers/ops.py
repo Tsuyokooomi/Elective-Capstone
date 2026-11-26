@@ -195,7 +195,8 @@ def list_audit_logs(limit: int = Query(50, ge=1, le=200), user: User = Depends(r
 
 @router.get("/kb")
 def list_kb(user: User = Depends(current_user), session=Depends(get_session)):
-    docs = session.scalars(select(KBDocument).order_by(KBDocument.sop_id)).all()
+    on_disk = {s["sop_id"] for s in load_sops()}   # a deleted SOP keeps its row (old chats cite it) but is not listed
+    docs = [d for d in session.scalars(select(KBDocument).order_by(KBDocument.sop_id)).all() if d.sop_id in on_disk]
     return [{"sop_id": d.sop_id, "title": d.title, "category": d.category, "indexed_at": _iso(d.indexed_at)}
             for d in docs]
 

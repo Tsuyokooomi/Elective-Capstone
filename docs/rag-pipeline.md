@@ -60,4 +60,5 @@ docker compose exec api python -m app.eval.run_eval          # score the whole p
 | TOP_K | 4 | Chunks sent to the LLM |
 | CANDIDATE_K | 8 | Candidates taken from each search before fusion |
 | MIN_VECTOR_SCORE | 0.62 | Below this, answer "no procedure found". Tuned on the 35 answerable and no-answer questions of the first eval set (answerable scores started at 0.67, no-answer scores went up to 0.74, so no value separates them perfectly). Re-check it with `evaluate_retrieval` and `run_eval` after changing the SOPs or the embedding model |
+| SOFT_MIN_VECTOR_SCORE | 0.45 | A lower bar used only when the classifier is confident and the best-ranked chunk belongs to the intent's own SOPs (`INTENTS[...]["sops"]`). It rescues questions such as "What is the mailbox size limit?" whose score is middling although the right SOP ranks first. Questions whose best chunk is another SOP still need `MIN_VECTOR_SCORE`. Chosen from the 2026-11-26 run without the real scores: check it with `evaluate_retrieval` |
 | CLASSIFIER_MIN_CONFIDENCE | 0.6 | Below this, an "out of scope" result is ignored |

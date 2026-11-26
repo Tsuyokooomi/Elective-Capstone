@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     top_k: int = 4                      # chunks sent to the LLM
     candidate_k: int = 8                # candidates from each search before fusion
     min_vector_score: float = 0.62      # below this, answer "no procedure found" (tuned with evaluate_retrieval)
+    soft_min_vector_score: float = 0.45 # lower bar, used only when the best chunk is from the intent's own SOPs
     classifier_min_confidence: float = 0.6
 
     # Automation (Phase 3)

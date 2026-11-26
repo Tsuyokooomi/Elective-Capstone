@@ -29,6 +29,13 @@ class Answer:
     used_llm: bool = False
 
 
+def opens_with_refusal(text: str) -> bool:
+    """True if the reply starts by saying it has no procedure (even if it goes on to cite or explain).
+    A "no procedure" sentence after real steps does not count: only the first words of the reply do."""
+    match = REFUSAL_RE.search((text or "")[:120])
+    return bool(match) and match.start() < 16   # room for "Sorry, " or "Unfortunately, "
+
+
 def parse_reply(raw: str, search: SearchResult) -> Answer:
     """Turn the model's text into an Answer and sort the SOP ids it contains.
 
@@ -66,9 +73,11 @@ def parse_reply(raw: str, search: SearchResult) -> Answer:
 
 
 def generate_answer(question: str, search: SearchResult, llm, min_score: float | None = None,
-                    history: list[dict] | None = None, previous: str | None = None) -> Answer:
-    """previous: an earlier reply to the same question that cited no SOP. The model sees it and is
-    asked once to fix it (see CITATION_REMINDER)."""
+                    history: list[dict] | None = None, previous: str | None = None,
+                    reminder: str = CITATION_REMINDER) -> Answer:
+    """previous: an earlier reply to the same question that had a problem. The model sees it and is
+    asked once to fix it, with the reminder (CITATION_REMINDER: it cited no SOP; CONTRADICTION_REMINDER:
+    it said it had no procedure and still cited one)."""
     min_score = settings.min_vector_score if min_score is None else min_score
 
     # No good match: do not ask the LLM, so it has nothing to invent from.
@@ -82,6 +91,6 @@ def generate_answer(question: str, search: SearchResult, llm, min_score: float |
     ]
     if previous is not None:
         messages += [ChatMessage(role="assistant", content=previous),
-                     ChatMessage(role="user", content=CITATION_REMINDER)]
+                     ChatMessage(role="user", content=reminder)]
     response = llm.chat(messages)
     return parse_reply(response.message.content or "", search)

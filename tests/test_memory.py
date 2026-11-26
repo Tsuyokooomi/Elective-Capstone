@@ -87,7 +87,7 @@ def test_a_follow_up_is_classified_and_searched_with_the_earlier_question(env):
     assert talk.classifier_llm.calls[1][1].content == "VPN says authentication failed\nwhat about step 3?"
     prompt = talk.last_answer_prompt()
     assert "CONVERSATION SO FAR" in prompt and "User: VPN says authentication failed" in prompt
-    assert prompt.rstrip().endswith("what about step 3?")             # the question itself is only the follow-up
+    assert prompt.split("QUESTION:")[1].strip().startswith("what about step 3?")   # the question is only the follow-up
     assert "CONVERSATION SO FAR" not in talk.answer_llm.calls[0][1].content
 
 

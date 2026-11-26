@@ -46,6 +46,21 @@ def fuse(vector_hits: list[dict], bm25_hits: list[dict], top_k: int) -> list[Chu
     return sorted(merged.values(), key=lambda c: c.score, reverse=True)[:top_k]
 
 
+def focus_on_sops(search: SearchResult, sop_ids: list[str], anywhere: bool = False) -> SearchResult:
+    """Drop the chunks that are not from the intent's SOPs, but only when the best-ranked chunk is one of them.
+    Then the search and the classifier agree on the topic, and the lower-ranked chunks of other SOPs are
+    distractors (a "phone" question pulling in the lost-phone SOPs). If they disagree, nothing changes, so a
+    wrong label can never remove the right SOP. anywhere=True is for an intent that a topic rule set from words
+    the user typed (an OTP, the VPN): then one chunk of the intent's SOPs anywhere in the list is enough.
+    best_vector_score stays that of the whole search."""
+    if not search.chunks or not any(c.sop_id in sop_ids for c in search.chunks):
+        return search
+    if not anywhere and search.chunks[0].sop_id not in sop_ids:
+        return search
+    keep = [c for c in search.chunks if c.sop_id in sop_ids]
+    return SearchResult(chunks=keep, best_vector_score=search.best_vector_score)
+
+
 class HybridRetriever:
     def __init__(self, embed_model=None, collection=None, sops=None):
         self.embed_model = embed_model or get_embed_model()

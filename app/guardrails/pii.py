@@ -89,3 +89,20 @@ def redact_pii(text: str, kinds: tuple[str, ...] | None = None) -> tuple[str, li
         if hit and label not in found:
             found.append(label)
     return text, found
+
+
+_TAG = re.compile(r"\[(?:EMAIL|PHONE|GOV_ID|CARD|SECRET|OTP)\]")
+
+
+HIDDEN_TAG = re.compile(r"\[(?:EMAIL|PHONE|GOV_ID|CARD|SECRET|OTP|IP)\]")
+
+
+def has_redaction_tag(text: str) -> bool:
+    """True if the text contains a [PHONE], [OTP]... tag, i.e. the user typed data that was hidden."""
+    return bool(HIDDEN_TAG.search(text or ""))
+
+
+def search_text(text: str) -> str:
+    """The redacted text without its [PHONE], [EMAIL], [OTP]... tags, for the knowledge base search. The tag
+    word itself ("phone", "email") would match SOPs about phones and email and pull the search off topic."""
+    return re.sub(r"\s{2,}", " ", _TAG.sub("", text)).strip() or text

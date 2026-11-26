@@ -9,24 +9,31 @@ from app.config import settings
 from app.db.models import Conversation, KBDocument, Message, MessageSource, ToolCall, User, utcnow
 from app.guardrails.injection import detect_injection
 from app.guardrails.output import filter_output
-from app.guardrails.pii import redact_pii
+from app.guardrails.pii import has_redaction_tag, redact_pii, search_text
 from app.rag.classifier import classify
-from app.rag.generator import Answer, generate_answer
+from app.rag.generator import Answer, generate_answer, opens_with_refusal
+from app.eval.metrics import unsupported_numbers
 from app.rag.history import Context, build_context, contextual_question, unresolved_complaint
 from app.rag.prompts import (
     CONFIRM_PASSWORD_RESET_MESSAGE,
+    CITATION_REMINDER,
     COMPANY,
+    CONTRADICTION_REMINDER,
     ESCALATION_MESSAGE,
+    HIDDEN_DATA_REMINDER,
     INJECTION_BLOCKED_MESSAGE,
     INTENTS,
     NO_ANSWER_MESSAGE,
+    NUMBERS_REMINDER,
     NO_MATCH_TWICE_MESSAGE,
     OUT_OF_SCOPE_MESSAGE,
     PRIORITY_BY_INTENT,
     UNRESOLVED_MESSAGE,
     check_security_patterns,
+    correct_intent,
+    topic_words_match,
 )
-from app.rag.retriever import SearchResult
+from app.rag.retriever import SearchResult, focus_on_sops
 from app.tools.executor import (
     CANCELLED_MESSAGE,
     CONFIRM_TICKET_MESSAGE,
@@ -115,22 +122,64 @@ def _filtered(answer: Answer, out: Outcome) -> tuple[Answer, bool]:
     return answer, replaced
 
 
-def _rag(question, retriever, answer_llm, out: Outcome, query=None, history=None, require_citation=True):
+def _rag(question, retriever, answer_llm, out: Outcome, query=None, history=None, require_citation=True,
+         focus_sops=None, trusted_focus=False):
     """Search, answer, then check the answer. query is the text to search with (it can include the
     earlier question for a follow-up). history is the earlier turns given to the model.
 
     Every answer must cite a retrieved SOP. If the model cites none, it is asked once to fix that;
     if it still cites none, the user gets the "no procedure" reply instead of an answer nobody can check.
-    require_citation=False skips that (escalations: a person takes over anyway, so no extra wait)."""
-    search = retriever.search(query or question)
-    answer, replaced = _filtered(generate_answer(question, search, answer_llm, history=history), out)
+    An answer that says "I don't have a procedure" and still cites an SOP contradicts itself: the model is
+    asked once to decide, and if it still does both, the user gets the plain "no procedure" reply.
+    require_citation=False skips both checks (escalations: a person takes over anyway, so no extra wait).
+
+    focus_sops: the SOPs of the intent (see focus_on_sops). trusted_focus: the intent came from a topic rule.
+    When the best chunk is also from the intent's SOPs, the search and the classifier agree, so the lower
+    "soft" score bar applies: a question that clearly matches its topic is not turned away for a middling score."""
+    search = retriever.search(search_text(query or question))
+    if focus_sops:
+        search = focus_on_sops(search, focus_sops, anywhere=trusted_focus)
+    agrees = bool(focus_sops and search.chunks and search.chunks[0].sop_id in focus_sops)
+    min_score = min(settings.soft_min_vector_score, settings.min_vector_score) if agrees else None   # never stricter than the normal bar
+
+    retry_reminder = HIDDEN_DATA_REMINDER if (agrees and has_redaction_tag(question)) else CITATION_REMINDER
+
+    answer, replaced = _filtered(
+        generate_answer(question, search, answer_llm, min_score=min_score, history=history), out)
     if (require_citation and answer.used_llm and not replaced and not answer.grounded
             and answer.text != NO_ANSWER_MESSAGE):
         logger.info("Answer cited no SOP, asking the model once more")
         retry, replaced = _filtered(
-            generate_answer(question, search, answer_llm, history=history, previous=answer.text), out)
+            generate_answer(question, search, answer_llm, min_score=min_score, history=history,
+                            previous=answer.text, reminder=retry_reminder), out)
         answer = retry if (retry.grounded or replaced) else Answer(text=NO_ANSWER_MESSAGE, used_llm=True)
+    if require_citation and answer.used_llm and not replaced and answer.grounded and opens_with_refusal(answer.text):
+        logger.info("Answer says it has no procedure and cites an SOP, asking the model to decide")
+        retry, replaced = _filtered(
+            generate_answer(question, search, answer_llm, min_score=min_score, history=history,
+                            previous=answer.text, reminder=CONTRADICTION_REMINDER), out)
+        if replaced or (retry.grounded and not opens_with_refusal(retry.text)) or retry.text == NO_ANSWER_MESSAGE:
+            answer = retry
+        else:
+            answer = Answer(text=NO_ANSWER_MESSAGE, used_llm=True)   # still both: the honest reply
+    if require_citation and answer.used_llm and not replaced and answer.grounded and answer.text != NO_ANSWER_MESSAGE:
+        bad = _unsupported_numbers(answer, search)
+        if bad:   # an invented time, limit or amount: ask once for a copy of the SOP's own numbers
+            logger.info("Answer has numbers that are not in its SOP (%s), asking the model once more", bad)
+            retry, retry_replaced = _filtered(
+                generate_answer(question, search, answer_llm, min_score=min_score, history=history,
+                                previous=answer.text, reminder=NUMBERS_REMINDER.format(numbers=", ".join(bad))), out)
+            if (retry.grounded and not retry_replaced and not opens_with_refusal(retry.text)
+                    and not _unsupported_numbers(retry, search)):
+                answer = retry   # otherwise keep the first answer: it is still grounded and cited
     return search, answer
+
+
+def _unsupported_numbers(answer: Answer, search: SearchResult) -> list[str]:
+    """Numbers in the answer that the SOPs it cites do not contain (the same check the evaluation runs)."""
+    cited = set(answer.cited_sop_ids)
+    source = "\n".join(c.text for c in search.chunks if c.sop_id in cited)
+    return unsupported_numbers(answer.text, source) if source else []
 
 
 def _sop_matches(retriever, query: str) -> bool:
@@ -246,6 +295,10 @@ def _handle_new(session, clean, user, conversation, retriever, answer_llm, class
         result = classify(contextual or clean, classifier_llm)
         out.intent, out.confidence = result["intent"], result["confidence"]
         source = "classifier"
+        corrected = correct_intent(contextual or clean, out.intent)
+        if corrected != out.intent:
+            logger.info("Intent %s changed to %s by a topic rule", out.intent, corrected)
+            out.intent, out.confidence, source = corrected, 1.0, "rules"   # a rule match, like the security patterns
         if out.intent == "out_of_scope" and out.confidence < settings.classifier_min_confidence:
             out.intent = None   # classifier is unsure: let retrieval decide
 
@@ -285,7 +338,10 @@ def _handle_new(session, clean, user, conversation, retriever, answer_llm, class
     elif out.route == "action" and _propose_action(session, intent, clean, user, tool_llm, out):
         pass
     else:
-        out.search, out.answer = _rag(clean, retriever, answer_llm, out, query=contextual, history=ctx.turns)
+        confident = out.confidence is not None and out.confidence >= settings.classifier_min_confidence
+        out.search, out.answer = _rag(clean, retriever, answer_llm, out, query=contextual, history=ctx.turns,
+                                      focus_sops=spec["sops"] if spec and confident else None,
+                                      trusted_focus=(source == "rules" or topic_words_match(contextual or clean, intent)))
         out.reply = out.answer.text
         if out.answer.text == NO_ANSWER_MESSAGE and ctx.last_assistant == NO_ANSWER_MESSAGE:
             # no procedure found twice in a row: stop guessing and bring in a person

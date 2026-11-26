@@ -79,6 +79,27 @@ That run passed 97/113 questions and 15/17 scenarios. The failures had three cau
 
 Q45 also failed `numbers_supported` (a number in the answer that is not in KB-008). The cause cannot be seen in the Markdown report; check the reply in the run's JSON file. The fixes are covered by `tests/test_citations.py`, which uses fake models: re-run `run_eval --judge` with the real model to measure them.
 
+## Fixes after the 2026-11-26 run
+
+The first run of that day passed 104/113 questions and 16/17 scenarios. After the first round of fixes (topic rules, focused search), the second run passed **108/113 questions (96%)** and 16/17 scenarios. Intent accuracy went from 90/94 to 94/94, routing from 112/113 to 113/113, and unsupported numbers from 2 to 0. English passed 90/94 and Filipino 18/19.
+
+Five questions and scenario C16 still failed in the second run. Their causes, found by reading the replies and the response times in `data/eval/eval-*.json`, and the fixes made afterwards:
+
+| Failed check | Items | Cause | Fix | Checked how |
+|---|---|---|---|---|
+| `cited` (no citation) | Q71, Q78 | The reply took under 1.1 s, so the model never ran. The search score (best cosine similarity) was below `MIN_VECTOR_SCORE` (0.62), although the right SOP ranked first. This was the cause of the first run's failure too. | A soft bar (`SOFT_MIN_VECTOR_SCORE`, 0.45) applies when the label is confident and the best chunk belongs to the intent's own SOPs. In the run, the five questions that truly have no procedure (Q42, Q43, Q88, Q91, Q92) all had another SOP first, so they stay stopped | Offline, with fake searches. The effect on the real scores: re-run |
+| `cited` (no citation) | Q57 | Same gate. The best chunk was the loaner-laptop SOP (KB-015), not KB-011, so the soft bar does not apply | Not fixed. Needs a better search for Filipino text, or a lower `MIN_VECTOR_SCORE` | |
+| `cited`, scenario C16 | Q95, C16 | The label was now right (`mfa_setup`), but the best chunk was KB-014 and the model said "no procedure" | A label set by a topic rule (OTP, VPN words) keeps only the intent's SOPs in the context, wherever they rank | Offline, with fake models |
+| `no_answer` | Q90 | The model wrote "I don't have a procedure for that" and then explained, citing KB-011 and KB-018, so the reply was not the fixed message | A reply that opens with "no procedure" and still cites an SOP is sent back once: the model must either answer with steps or refuse. If it still does both, the user gets the fixed message | Offline, with scripted models |
+| Judge: not faithful | Q45, Q96, Q98 | The model reacted to tags such as `[PHONE]` ("I cannot access your phone number") | Rules 10 and 11 of the answer prompt explain the tags and forbid refusing and answering in the same reply | Re-run |
+
+Two notes on how to read the second run:
+
+- Q45 and Q96 passed `cited`, but their replies began with "I don't have a procedure for that" and then gave steps. The metric counts the cited SOP, not the wording, so a self-contradicting reply can pass. The retry above targets this.
+- The retrieval check in `run_eval` searches with the redacted text including its tags, while the chat pipeline searches without them. The two can differ for messages that contain personal data.
+
+Run `python -m app.eval.run_eval --judge` again before you quote new numbers. The soft bar was set to 0.45 without the real scores. `python -m app.rag.evaluate_retrieval` prints them, so you can move the value.
+
 ## Limits to mention in the defense
 
 - The eval set is small: 113 questions, and one run is one sample. Local models are not fully deterministic, so a few results can change between runs.

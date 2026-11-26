@@ -36,9 +36,16 @@ def test_prompt_examples_are_not_copied_from_the_eval_set():
 def test_a_strong_sop_match_overrides_a_wrong_out_of_scope_label(env):
     talk = Talk(env)
     talk.classifier_llm = FakeLLM(OUT_OF_SCOPE)
-    result = talk.say("VPN says authentication failed")          # the test search always finds KB-008 (min score is 0)
+    result = talk.say("I keep seeing an authentication error")   # no topic word, so no topic rule; the test search always finds KB-008
     assert result["route"] == "answer" and result["intent"] is None
     assert result["grounded"] and talk.answer_llm.calls
+
+
+def test_a_message_that_names_the_vpn_gets_the_vpn_intent_even_if_the_model_says_out_of_scope(env):
+    talk = Talk(env)
+    talk.classifier_llm = FakeLLM(OUT_OF_SCOPE)
+    result = talk.say("VPN says authentication failed")
+    assert result["route"] == "answer" and result["intent"] == "vpn_help" and result["grounded"]
 
 
 def test_a_real_out_of_scope_question_is_still_declined(env, monkeypatch):

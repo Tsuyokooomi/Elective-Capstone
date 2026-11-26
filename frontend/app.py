@@ -23,8 +23,9 @@ DEMO_ACCOUNTS = [
 VIEWS_BY_ROLE = {
     "employee": ["Chat"],
     "agent": ["Agent queue", "Chat"],
-    "admin": ["Dashboard", "Agent queue", "Knowledge base", "Chat"],
+    "admin": ["Dashboard", "Agent queue", "Knowledge base", "Account Management", "Chat"],
 }
+POLL_SECONDS = float(os.getenv("POLL_SECONDS", "3"))   # how often an open chat checks for new messages
 STREAM_DELAY = float(os.getenv("STREAM_DELAY", "0.012"))   # seconds per word; 0 turns the effect off
 PRIORITY_ORDER = {"P1": 0, "P2": 1, "P3": 2, "P4": 3}
 
@@ -188,6 +189,24 @@ def last_answer_meta() -> dict | None:
     return last.get("meta") if last["role"] == "assistant" else None
 
 
+@st.fragment(run_every=POLL_SECONDS)
+def agent_reply_watcher(token: str):
+    """Runs on its own timer while a human agent handles the chat. When the agent has written something
+    that is not on screen yet (or has closed the chat), it loads the conversation and redraws the page."""
+    cid = st.session_state.get("conversation_id")
+    if cid is None:
+        return
+    try:
+        data = api.conversation_messages(token, cid)
+    except api.ApiError:
+        return   # try again on the next tick
+    on_screen = sum(1 for item in st.session_state.history if item.get("label") == "Human agent")
+    from_agent = sum(1 for m in data["messages"] if m["sender"] == "agent")
+    if from_agent > on_screen or data["status"] != "escalated":
+        load_conversation(token, cid)
+        st.rerun()
+
+
 def chat_view(user: dict):
     token = user["token"]
     for key, default in (("history", []), ("conversation_id", None), ("pending", False),
@@ -228,6 +247,7 @@ def chat_view(user: dict):
         if st.button("🔄 Check for agent replies", key="refresh_chat"):
             load_conversation(token, st.session_state.conversation_id)
             st.rerun()
+        agent_reply_watcher(token)   # also checks by itself every few seconds
 
     if st.session_state.pending:
         yes_col, no_col, _ = st.columns([1, 1, 4])
@@ -271,6 +291,21 @@ def ticket_card(ticket: dict) -> str:
     <div>Resolved<b>{when(ticket.get('resolved_at'))}</b></div>
   </div>
 </div>"""
+
+
+@st.fragment(run_every=POLL_SECONDS)
+def conversation_panel(token: str, cid: int):
+    """The chat transcript. It refreshes by itself, so the employee's new messages show up without a click.
+    The reply form stays outside it, so text being typed is not lost when it refreshes."""
+    try:
+        data = api.conversation_messages(token, cid)
+    except api.ApiError as exc:
+        return show_error(exc)
+    for m in data["messages"]:
+        role = "user" if m["sender"] == "user" else "assistant"
+        with st.chat_message(role):
+            st.caption({"user": "Employee", "assistant": "Assistant", "agent": "Agent"}.get(m["sender"], m["sender"]))
+            st.markdown(m["content"])
 
 
 def agent_view(user: dict):
@@ -343,15 +378,7 @@ def agent_view(user: dict):
         return st.caption("This ticket has no chat.")
 
     st.subheader("💬 Conversation")
-    try:
-        data = api.conversation_messages(token, cid)
-    except api.ApiError as exc:
-        return show_error(exc)
-    for m in data["messages"]:
-        role = "user" if m["sender"] == "user" else "assistant"
-        with st.chat_message(role):
-            st.caption({"user": "Employee", "assistant": "Assistant", "agent": "Agent"}.get(m["sender"], m["sender"]))
-            st.markdown(m["content"])
+    conversation_panel(token, cid)
 
     with st.form(f"reply_{cid}", clear_on_submit=True):
         reply = st.text_area("Reply to the employee", key=f"reply_text_{cid}", placeholder="Type your reply…")
@@ -557,6 +584,55 @@ def kb_view(user: dict):
         show_error(exc)
 
 
+def accounts_view(user: dict):
+    token = user["token"]
+    st.title("Account Management")
+    ui.subtitle("Create accounts for employees, agents and admins.")
+
+    notice = st.session_state.pop("account_created", None)
+    if notice:
+        st.success(notice, icon="✅")
+
+    section("Create a new account")
+    with st.form("new_account", clear_on_submit=False):
+        a, b = st.columns(2)
+        employee_id = a.text_input("Employee ID", placeholder="E-1002", max_chars=20)
+        name = b.text_input("Full name", max_chars=100)
+        c, d = st.columns(2)
+        email = c.text_input("Email", placeholder="name@capstonecompany.example")
+        role = d.selectbox("Role", ["employee", "agent", "admin"])
+        e, f = st.columns(2)
+        password = e.text_input("Password", type="password", help="At least 10 characters, with a letter and a number.")
+        confirm = f.text_input("Confirm password", type="password")
+        submitted = st.form_submit_button("Create account", type="primary", key="create_account")
+
+    if submitted:
+        if not all([employee_id.strip(), name.strip(), email.strip(), password]):
+            st.error("Fill in every field.")
+        elif password != confirm:
+            st.error("The two passwords do not match.")
+        else:
+            try:
+                created = api.create_user(token, employee_id.strip(), name.strip(), email.strip(), role, password)
+            except api.ApiError as exc:
+                show_error(exc)
+            else:
+                st.session_state["account_created"] = (
+                    f"Created {created['employee_id']} ({created['name']}) as {created['role']}. "
+                    "Share the password with them in person; they can sign in now.")
+                st.rerun()
+
+    section("Existing accounts")
+    try:
+        accounts = api.users(token)
+    except api.ApiError as exc:
+        return show_error(exc)
+    st.caption(f"{len(accounts)} accounts.")
+    st.dataframe(
+        pd.DataFrame(accounts)[["employee_id", "name", "email", "role", "created_at"]],
+        hide_index=True, width="stretch")
+
+
 def index_summary(result: dict) -> str:
     if not isinstance(result, dict):
         return f"Done: {result}"
@@ -707,7 +783,7 @@ def main():
 
     view = sidebar(user, VIEWS_BY_ROLE[user["role"]])
     {"Chat": chat_view, "Agent queue": agent_view, "Dashboard": dashboard_view,
-     "Knowledge base": kb_view}[view](user)
+     "Knowledge base": kb_view, "Account Management": accounts_view}[view](user)
 
 
 main()

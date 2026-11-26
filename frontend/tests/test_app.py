@@ -54,6 +54,13 @@ class FakeBackend:
             return [{"to": "alex@capstonecompany.example", "subject": "Reset your CapstoneCompany password",
                      "link": "http://localhost:8501/?reset_token=good-token", "body": "x",
                      "sent_at": "2026-11-22T10:00:00+00:00"}]
+        if (method, path) == ("GET", "/users"):
+            return [{"employee_id": "E-3001", "name": "Adam Admin", "email": "adam@capstonecompany.example",
+                     "role": "admin", "created_at": "2026-11-20"}]
+        if (method, path) == ("POST", "/users"):
+            if kw["json"]["employee_id"] == "E-3001":
+                raise api.ApiError("That employee ID is already in use.", 409)
+            return {**{k: v for k, v in kw["json"].items() if k != "password"}, "created_at": "2026-11-26"}
         if path == "/health":
             return {"status": "ok"}
         if path == "/me":
@@ -158,6 +165,23 @@ def test_agent_handling_banner(backend):
     assert [b for b in at.button if b.key == "refresh_chat"]
 
 
+def test_new_agent_reply_appears_without_clicking_refresh(backend):
+    at = start()
+    at.chat_input[0].set_value("agent please").run()
+    assert not any("Come to my desk" in m.value for m in at.markdown)
+    backend.messages.append({"id": 3, "sender": "agent", "content": "Come to my desk", "intent": None, "created_at": "x"})
+    at.run()   # the watcher runs on every page run and on its timer; no button is clicked
+    assert any("Come to my desk" in m.value for m in at.markdown)
+
+
+def test_agent_screen_shows_new_employee_message_after_a_refresh(backend):
+    at = start("E-2001")
+    assert not any("Still stuck" in m.value for m in at.markdown)
+    backend.messages.append({"id": 4, "sender": "user", "content": "Still stuck", "intent": None, "created_at": "x"})
+    at.run()
+    assert any("Still stuck" in m.value for m in at.markdown)
+
+
 def test_api_error_is_shown_not_raised(backend, monkeypatch):
     def boom(method, path, employee_id=None, **kw):
         if path == "/auth/login":
@@ -214,6 +238,42 @@ def test_admin_knowledge_base_page(backend):
     assert any("indexed" in s.value for s in at.success)
     assert ("POST", "/kb/reindex", "E-3001", {"params": {"force": False}}) in backend.calls
     assert any("Password Reset" in m.value for m in at.markdown)
+
+
+def test_admin_account_management_page(backend):
+    at = start("E-3001", view="Account Management")
+    assert at.title[0].value == "Account Management"
+    at.text_input[0].set_value("E-4001")
+    at.text_input[1].set_value("Nora New")
+    at.text_input[2].set_value("nora@capstonecompany.example")
+    at.selectbox[0].set_value("agent")
+    at.text_input[3].set_value("Fresh-Pass-2026")
+    at.text_input[4].set_value("Fresh-Pass-2026")
+    at.button(key="create_account").click().run()
+    posts = [c for c in backend.calls if c[:2] == ("POST", "/users")]
+    assert len(posts) == 1 and posts[0][3]["json"]["role"] == "agent"
+    assert any("E-4001" in s.value for s in at.success)
+
+
+def test_account_management_rejects_mismatched_passwords_and_duplicates(backend):
+    at = start("E-3001", view="Account Management")
+    for i, value in enumerate(["E-4001", "Nora New", "nora@capstonecompany.example"]):
+        at.text_input[i].set_value(value)
+    at.text_input[3].set_value("Fresh-Pass-2026")
+    at.text_input[4].set_value("Different-Pass-1")
+    at.button(key="create_account").click().run()
+    assert any("do not match" in e.value for e in at.error)
+    assert not [c for c in backend.calls if c[:2] == ("POST", "/users")]
+
+    at.text_input[0].set_value("E-3001")        # an ID that already exists
+    at.text_input[4].set_value("Fresh-Pass-2026")
+    at.button(key="create_account").click().run()
+    assert any("already in use" in e.value for e in at.error)
+
+
+def test_only_admins_see_account_management(backend):
+    assert "Account Management" in start("E-3001").sidebar.radio(key="view").options
+    assert "Account Management" not in start("E-2001").sidebar.radio(key="view").options
 
 
 def test_signing_out_and_in_as_someone_else_starts_a_fresh_chat(backend):

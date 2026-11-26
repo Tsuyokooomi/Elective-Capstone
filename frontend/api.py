@@ -43,6 +43,17 @@ def outbox(token):
     return request("GET", "/mock/outbox", token)
 
 
+def users(token):
+    """Admin only: every account (no passwords)."""
+    return request("GET", "/users", token)
+
+
+def create_user(token, employee_id, name, email, role, password):
+    """Admin only: create an account. Raises ApiError(400) for bad input, 409 for a duplicate."""
+    return request("POST", "/users", token, json={
+        "employee_id": employee_id, "name": name, "email": email, "role": role, "password": password})
+
+
 def chat(token, message, conversation_id=None):
     # Who is asking comes from the token. The backend ignores any employee ID in the body.
     return request("POST", "/chat", token, json={"message": message, "conversation_id": conversation_id})
